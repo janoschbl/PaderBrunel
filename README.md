@@ -50,6 +50,10 @@ Requests go to `https://service.ivanto.de/srs/api/v1/` with the tenant and app i
 - **Saved trips** (`LiveTrip.kt`) refresh realtime data per leg and flag transfers that no longer work.
 - **Settings** under Profil, Einstellungen set the search style, the minimum transfer time, and the maximum number of changes.
 
+## License
+
+[The Unlicense](LICENSE). Public domain, everyone may do anything with it.
+
 ## Disclaimer
 
 PaderBrunel is an unofficial project. It is not affiliated with PaderSprinter, Nahverkehrsverbund Paderborn/Höxter, or ivanto.
