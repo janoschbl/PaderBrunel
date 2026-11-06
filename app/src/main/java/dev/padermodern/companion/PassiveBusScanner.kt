@@ -21,7 +21,7 @@ import dev.padermodern.data.BusRecord
 @SuppressLint("MissingPermission")
 internal class PassiveBusScanner(
     private val context: Context,
-    private val record: (String, BusRecord, Long) -> Unit,
+    private val record: (String, String, BusRecord, Long) -> Unit,
     private val status: (Boolean, String) -> Unit,
 ) {
     private val handler = Handler(Looper.getMainLooper())
@@ -33,10 +33,11 @@ internal class PassiveBusScanner(
             val bus = BusAdvertisement.parse(raw) ?: return
             if (bus.simulator) return
             // address is an in-memory session key, never persisted
-            val key = runCatching { "${result.device.address}:${bus.hardwareId}:${bus.course}" }.getOrNull() ?: return
+            val address = runCatching { result.device.address }.getOrNull() ?: return
+            val key = "$address:${bus.hardwareId}:${bus.course}"
             handler.post {
                 val timestamp = result.timestampNanos / 1_000_000
-                if (scanner != null && timestamp >= startedAt) record(key, bus, timestamp)
+                if (scanner != null && timestamp >= startedAt) record(key, address, bus, timestamp)
             }
         }
         override fun onScanFailed(errorCode: Int) { handler.post {

@@ -12,22 +12,29 @@ android {
         applicationId = "dev.padermodern"
         minSdk = 31
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Backend for connections and live pushes. Debug talks to the PC via `adb reverse tcp:8099 tcp:8099`.
+    // Release stays empty (provider only) until a server exists: -Pbrunel.backend=https://host
+    val backendUrl = providers.gradleProperty("brunel.backend").orNull
     buildTypes {
+        debug {
+            buildConfigField("String", "BACKEND_URL", "\"${backendUrl ?: "http://127.0.0.1:8099"}\"")
+        }
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("String", "BACKEND_URL", "\"${backendUrl ?: ""}\"")
         }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
 }
 
 dependencies {
@@ -44,9 +51,11 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:5.5.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    implementation("androidx.work:work-runtime-ktx:2.10.5")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
     androidTestImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test:core:1.7.0")

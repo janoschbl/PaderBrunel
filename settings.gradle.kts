@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "Brunel"
-include(":app", ":capture")
+include(":app")

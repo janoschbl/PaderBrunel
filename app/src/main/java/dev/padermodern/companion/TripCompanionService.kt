@@ -31,6 +31,7 @@ import dev.padermodern.data.BusRecord
 import dev.padermodern.data.BusMatchTracker
 import dev.padermodern.data.JourneyAnnouncement
 import dev.padermodern.data.match
+import dev.padermodern.data.servesLine
 import kotlinx.coroutines.*
 
 class TripCompanionService : Service(), LocationListener {
@@ -45,6 +46,7 @@ class TripCompanionService : Service(), LocationListener {
     private var started = 0L
     private var lastNotice: String? = null
     private lateinit var buses: PassiveBusScanner
+    private lateinit var vehicles: VehicleDataReader
     private var busLoad: Job? = null
     private var busNames: BusNames? = null
     private var busMatch = BusMatchTracker()
@@ -58,8 +60,9 @@ class TripCompanionService : Service(), LocationListener {
             TripCompanion.mutableState.value = TripCompanion.state.value.copy(headphones = headphones, speechReady = ready, speechStatus = status)
             if (TripCompanion.state.value.running) updateNotification()
         }
+        vehicles = VehicleDataReader(this)
         buses = PassiveBusScanner(this, ::onBus) { scanning, status ->
-            if (!scanning) busMatch = BusMatchTracker()
+            if (!scanning) { busMatch = BusMatchTracker(); vehicles.stop() }
             TripCompanion.mutableState.value = TripCompanion.state.value.copy(busScanning = scanning,
                 busMatched = false, busStatus = status)
         }
@@ -147,6 +150,7 @@ class TripCompanionService : Service(), LocationListener {
     private fun bluetooth(enabled: Boolean) {
         busLoad?.cancel()
         buses.stop()
+        vehicles.stop()
         busMatch = BusMatchTracker()
         TripCompanion.mutableState.value = TripCompanion.state.value.copy(busEnabled = enabled, busScanning = false,
             busMatched = false, busStatus = if (enabled) "Lade Linien- und Haltestellennamen …" else "Bus-Bluetooth optional")
@@ -164,13 +168,17 @@ class TripCompanionService : Service(), LocationListener {
         }
     }
 
-    private fun onBus(key: String, bus: BusRecord, timestamp: Long) {
+    private fun onBus(key: String, address: String, bus: BusRecord, timestamp: Long) {
         val state = TripCompanion.state.value
         val engine = progress ?: return
         val leg = route?.partialRoutes?.getOrNull(state.legIndex) ?: return
         if (!state.running || !state.busEnabled || engine.arrived || leg.stations.any { it.canceled }) return
         if (SystemClock.elapsedRealtime() - timestamp !in 0..10_000) return
-        val index = busNames?.match(bus, leg) ?: return
+        val index = when {
+            bus.line == null -> busNames?.match(bus, leg)
+            bus.servesLine(leg) -> vehicles.current(address, bus.dataVersion)?.let { bus.match(it, leg) }
+            else -> null
+        } ?: return
         if (engine.nextStopIndex?.let { index < it } == true) return
         val gpsNext = engine.nextStopIndex.takeIf { engine.hasGoodFix && latestFix?.let {
             (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / 1_000_000 in 0..30_000
@@ -274,6 +282,7 @@ class TripCompanionService : Service(), LocationListener {
         session?.cancel()
         busLoad?.cancel()
         buses.stop()
+        vehicles.stop()
         scope.cancel()
         locations.removeUpdates(this)
         speech.close()

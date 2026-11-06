@@ -10,7 +10,23 @@ data class BusRecord(
     val hardwareId: Int,
     val course: Int,
     val simulator: Boolean = false,
+    // protocol 18 sends the line as text and moves destination and next stop to gatt 0x2020
+    val line: String? = null,
+    // low 3 bits of byte 4 in protocol 18, they roll over while the bus drives
+    val dataVersion: Int? = null,
 )
+
+data class VehicleData(val destination: String, val nextStop: String) {
+    companion object {
+        // 0x2020 holds utf-8 fields split by 0x1d: destination, next stop, then an often empty rest
+        fun parse(raw: ByteArray): VehicleData? {
+            val fields = raw.toString(Charsets.UTF_8).split('\u001d').map { it.trim() }
+            val destination = fields.getOrNull(0)?.takeIf { it.isNotEmpty() } ?: return null
+            val stop = fields.getOrNull(1)?.takeIf { it.isNotEmpty() } ?: return null
+            return VehicleData(destination, stop)
+        }
+    }
+}
 
 object BusAdvertisement {
     private const val SERVICE_UUID = 0x1f1f
@@ -46,8 +62,20 @@ object BusAdvertisement {
         if (data.size < 18) return null
         val simulator = data[0] == 0x79.toByte() && data[1] == 0x7d.toByte()
         if (!simulator && !(data[0] == 0x78.toByte() && data[1] == 0x7d.toByte())) return null
-        if (((data[2].toInt() and 0xff) shl 8 or (data[3].toInt() and 0xff)) != 16 || (data[5].toInt() and 0xff) != 4) return null
-        return BusRecord(4, word(data, 6), word(data, 8), word(data, 10), word(data, 12), word(data, 14), simulator)
+        return when ((data[2].toInt() and 0xff) shl 8 or (data[3].toInt() and 0xff)) {
+            16 -> if ((data[5].toInt() and 0xff) != 4) null
+                else BusRecord(4, word(data, 6), word(data, 8), word(data, 10), word(data, 12), word(data, 14), simulator)
+            18 -> protocol18(data, simulator)
+            else -> null
+        }
+    }
+
+    // bytes 5 to 9 differ per vehicle and are not decoded, byte 10 is 0x80 followed by the line in ascii
+    private fun protocol18(data: ByteArray, simulator: Boolean): BusRecord? {
+        if (data[10] != 0x80.toByte()) return null
+        val text = data.copyOfRange(11, data.size).takeWhile { it != 0.toByte() }
+        if (text.isEmpty() || text.any { it !in 0x21..0x7e }) return null
+        return BusRecord(4, 0, 0, 0, 0, 0, simulator, String(text.toByteArray(), Charsets.US_ASCII), data[4].toInt() and 0x07)
     }
 
     private fun word(data: ByteArray, offset: Int): Int =
@@ -61,6 +89,7 @@ data class BusNames(
 )
 
 fun BusNames.match(record: BusRecord, leg: PartialRoute): Int? {
+    if (record.line != null) return null
     val line = normalize(lines[record.lineId]) ?: return null
     if (record.company != 4 || record.simulator || line != normalize(leg.shortName)) return null
     val direction = normalize(leg.lineDirection)?.removePrefix("nach ")?.trim().orEmpty()
@@ -69,6 +98,20 @@ fun BusNames.match(record: BusRecord, leg: PartialRoute): Int? {
     val matches = leg.stations.filter { normalize(it.displayName) == stopName }
     return matches.singleOrNull()?.let { leg.stations.indexOf(it) }
 }
+
+fun BusRecord.servesLine(leg: PartialRoute): Boolean =
+    !simulator && line != null && normalize(line) != null && normalize(line) == normalize(leg.shortName)
+
+// the bus joins its display rows ("NeuenbekenHoltgrevenstraße") where the api has "Neuenbeken"
+fun BusRecord.match(data: VehicleData, leg: PartialRoute): Int? {
+    if (!servesLine(leg)) return null
+    val direction = compact(normalize(leg.lineDirection)?.removePrefix("nach "))
+    if (direction.length < 3 || !compact(data.destination).startsWith(direction)) return null
+    val stop = compact(data.nextStop).ifEmpty { return null }
+    return leg.stations.indices.filter { compact(leg.stations[it].name) == stop || compact(leg.stations[it].displayName) == stop }.singleOrNull()
+}
+
+private fun compact(value: String?): String = normalize(value)?.filter { it.isLetterOrDigit() }.orEmpty()
 
 private fun normalize(value: String?): String? = value?.lowercase(Locale.ROOT)
     ?.replace("str.", "straße")

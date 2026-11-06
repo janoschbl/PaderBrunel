@@ -180,8 +180,8 @@ fun PaderModernApp(vm: AppViewModel = viewModel()) {
                     onRouteTo = { s ->
                         vm.to = s
                         if (vm.from == null) vm.from = vm.myLocationStation()
+                        vm.tripFormExpanded = true
                         nav.switchTab("trips")
-                        vm.searchTrips()
                     },
                 )
             }
@@ -217,10 +217,15 @@ fun PaderModernApp(vm: AppViewModel = viewModel()) {
                     },
                     onlyStops = target == "board",
                     offerMyLocation = target != "board",
+                    onPreview = when (target) {
+                        "from" -> { s -> vm.previewTripStation(s, origin = true) }
+                        "to" -> { s -> vm.previewTripStation(s, origin = false) }
+                        else -> null
+                    },
                     onPick = { s ->
                         when (target) {
-                            "from" -> { vm.from = s; nav.popBackStack(); if (vm.to != null) vm.searchTrips() }
-                            "to" -> { vm.to = s; nav.popBackStack(); if (vm.from != null) vm.searchTrips() }
+                            "from" -> { vm.from = s; vm.tripFormExpanded = true; nav.popBackStack() }
+                            "to" -> { vm.to = s; vm.tripFormExpanded = true; nav.popBackStack() }
                             else -> {
                                 nav.popBackStack()
                                 openBoard(s)
@@ -231,6 +236,11 @@ fun PaderModernApp(vm: AppViewModel = viewModel()) {
                 )
             }
             composable("board") {
+                // the push connection lives only while the board is on screen
+                androidx.lifecycle.compose.LifecycleStartEffect(vm.boardStation) {
+                    vm.startBoardLive()
+                    onStopOrDispose { vm.stopBoardLive() }
+                }
                 BoardScreen(vm, onBack = { nav.popBackStack() }, onDeparture = { vm.selectedDeparture = it; nav.navigate("departure") })
             }
             composable("departure") {

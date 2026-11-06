@@ -26,20 +26,21 @@ The app is called Brunel. It talks to the ivanto SRS backend of PaderSprinter, t
 - **Karte.** Stops on an OpenStreetMap map with the departures of each platform.
 - **Störungen.** Disruptions grouped by notice, and the network maps as PDFs.
 
-## Modules
+## Project layout
 
-| Module | Purpose |
-|---|---|
-| `app` | The client. |
-| `capture` | Separate debug app that records Bluetooth bus advertisements, see [the radar notes](docs/bluetooth-radar.md). |
-| `tools` | `api_check.sh` calls every backend endpoint the app uses. `ui.sh` drives the app over adb. |
+This repository contains only the Brunel Android app.
+
+- `app/` contains the app and its tests.
+- `assets/` contains the app icon.
+- `docs/` contains the connection-search plan.
+- `tools/` contains the app's API checks and UI test helpers.
 
 ## Build
 
 ```sh
 export JAVA_HOME=~/.local/share/mise/installs/java/temurin-21
-./gradlew installDebug        # needs SDK platform android-37.0
-./gradlew testDebugUnitTest
+./gradlew :app:installDebug        # needs SDK platform android-37.0
+./gradlew :app:testDebugUnitTest
 ```
 
 ## How it works

@@ -103,10 +103,16 @@ data class Route(
             }
             ?: arrivalDate
 
+    val hasLiveData: Boolean get() = expectedDepartureDate != null || expectedArrivalDate != null || partialRoutes.any { it.expectedDepartureDate != null || it.expectedArrivalDate != null }
+
     val key: String
         get() = "$departureDate|$arrivalDate|" +
-            partialRoutes.joinToString(",") { "${it.shortName}@${it.stations.firstOrNull()?.id}>${it.stations.lastOrNull()?.id}" }
+            partialRoutes.joinToString(",") { "${it.shortName?.filterNot(Char::isWhitespace)}@${it.stations.firstOrNull()?.id}>${it.stations.lastOrNull()?.id}" }
 }
+
+/** Same connection from several sources collapses to one entry; the one with live data wins. */
+fun List<Route>.distinctRoutes(): List<Route> =
+    groupBy { it.key }.values.map { g -> g.firstOrNull { it.hasLiveData } ?: g.first() }
 
 @Serializable
 data class RoutesResponse(

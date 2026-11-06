@@ -122,6 +122,47 @@ class BusAdvertisementTest {
         assertTrue(tracker.matched)
     }
 
+    // real packets and reads from the 24 October 2026 field log
+    private fun hex(s: String) = s.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    private val line8 = hex("13ff787d001213e121040101803800000000000002010603031f1f0409697669")
+    private val line12 = hex("040969766313ff787d001214e119d05181803132000000000003031f1f0b09426c75655a20352e3738")
+    private val line1 = hex("0319000002010603031f1f13ff787d0010050401006f00e903000300000000")
+    private val atRathausplatz = hex("4e6575656e62656b656e486f6c7467726576656e73747261c39f651d52617468617573706c61747a1d")
+    private val atFroebel = hex("4e6575656e62656b656e486f6c7467726576656e73747261c39f651d4672c3b662656c73747261c39f651d")
+    private val line12Read = hex("4b61756b656e626572677669612041756620646572204c696574684b61756b656e6265726776696120476f6c64626572671d5765737465726e746f721d")
+    // shortName, lineDirection and stops as the routes api returns them for Hauptbahnhof to Langer Weg
+    private val leg8 = PartialRoute(shortName = "8", lineDirection = "Neuenbeken", stations = listOf("Hauptbahnhof", "Westerntor",
+        "Rathausplatz", "Kamp", "Am Bogen", "Gierstor", "Fröbelstraße", "Langer Weg").map { Station(name = it, locality = "Paderborn") })
+
+    @Test fun parsesProtocol18LineTextAndDataVersion() {
+        val bus = BusAdvertisement.parse(line8)!!
+        assertEquals("8", bus.line); assertEquals(3, bus.dataVersion); assertFalse(bus.simulator)
+        assertEquals("12", BusAdvertisement.parse(line12)!!.line)
+        assertNull(BusAdvertisement.parse(line8.copyOf().also { it[13] = 0x00 }))
+        val oldStyle = BusAdvertisement.parse(line1)!!
+        assertEquals(1, oldStyle.lineId); assertEquals(1001, oldStyle.nextStopId); assertNull(oldStyle.line)
+    }
+
+    @Test fun parsesVehicleDataFields() {
+        assertEquals(VehicleData("NeuenbekenHoltgrevenstraße", "Rathausplatz"), VehicleData.parse(atRathausplatz))
+        assertEquals("Westerntor", VehicleData.parse(line12Read)!!.nextStop)
+        assertNull(VehicleData.parse("Neuenbeken".toByteArray()))
+        assertNull(VehicleData.parse(ByteArray(0)))
+    }
+
+    @Test fun matchesProtocol18BusByTextAgainstApiLeg() {
+        val bus = BusAdvertisement.parse(line8)!!
+        assertEquals(2, bus.match(VehicleData.parse(atRathausplatz)!!, leg8))
+        assertEquals(6, bus.match(VehicleData.parse(atFroebel)!!, leg8))
+        assertEquals(0, bus.match(VehicleData("NeuenbekenHoltgrevenstraße", "Hauptbahnhof"), leg8))
+        assertNull(bus.match(VehicleData("Hauptbahnhof", "Rathausplatz"), leg8))
+        assertNull(bus.match(VehicleData("NeuenbekenHoltgrevenstraße", "Detmolder Tor"), leg8))
+        assertNull(bus.match(VehicleData.parse(atRathausplatz)!!, leg8.copy(shortName = "11")))
+        assertNull(bus.match(VehicleData.parse(atRathausplatz)!!, leg8.copy(lineDirection = null)))
+        assertNull(BusAdvertisement.parse(line12)!!.match(VehicleData.parse(line12Read)!!, leg8.copy(shortName = "11", lineDirection = "Kaukenberg")))
+        assertNull(BusNames(mapOf(0 to "8"), emptyMap(), emptyMap()).match(bus, leg8))
+    }
+
     private fun packet(
         protocol: Int = 16, company: Int = 4, simulator: Boolean = false,
         header: ByteArray = byteArrayOf(if (simulator) 0x79 else 0x78, 0x7d.toByte()), includeService: Boolean = true,

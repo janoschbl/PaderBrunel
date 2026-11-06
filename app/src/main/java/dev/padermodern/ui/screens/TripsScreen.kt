@@ -189,6 +189,17 @@ fun TripsScreen(vm: AppViewModel, onPick: (PickTarget) -> Unit, onRoute: (Route)
                 }
             }
 
+            if (state.data != null) {
+                state.error?.let { warning -> item(key = "partial_error") {
+                    Text(
+                        warning,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp).testTag("trip_partial_error"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                } }
+            }
+
             when {
                 state.loading && state.data == null -> item { LoadingState(Modifier.padding(vertical = 24.dp), label = "Suche Verbindungen …") }
                 state.error != null && state.data == null -> item { ErrorState(state.error) { vm.searchTrips() } }
@@ -206,6 +217,17 @@ fun TripsScreen(vm: AppViewModel, onPick: (PickTarget) -> Unit, onRoute: (Route)
                 }
                 else -> {
                     item { PagerButton("Früher", Icons.Rounded.ExpandLess, vm.pagingEarlier) { vm.pageTrips(false) } }
+                    if (vm.tripRefreshing) item(key = "refreshing") {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp)) {
+                            Text(
+                                if (vm.tripPreviewLocal) "Vorschau aus dem lokalen Fahrplan, wird aktualisiert …" else "Aktualisiere Verbindungen …",
+                                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.testTag("trip_refreshing"),
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                        }
+                    }
                     val fastest = TripSearch.fastest(state.data)
                     items(state.data, key = { it.key }) { r ->
                         RouteCard(r, vm.store.isTripSaved(r), r.key in fastest, Modifier.animateItem()) { onRoute(r) }
@@ -227,7 +249,6 @@ fun TripsScreen(vm: AppViewModel, onPick: (PickTarget) -> Unit, onRoute: (Route)
     if (showTime) TimeDialog(vm.tripTime, onDismiss = { showTime = false }) {
         vm.tripTime = it
         showTime = false
-        if (vm.from != null && vm.to != null) vm.searchTrips()
     }
 }
 

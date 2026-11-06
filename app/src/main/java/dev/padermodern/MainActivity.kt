@@ -17,11 +17,32 @@ import dev.padermodern.ui.PaderModernApp
 import dev.padermodern.ui.theme.PaderTheme
 
 class MainActivity : ComponentActivity() {
+    private var bench: AppViewModel? = null
+    private var lastSeq: String? = null
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleBench(intent)
+    }
+
+    /** Debug builds only: `am start ... --es pm_from NAME --es pm_to NAME [--es pm_at HH:MM] --es pm_seq N` runs one timed search. */
+    private fun handleBench(intent: android.content.Intent?) {
+        if (!dev.padermodern.data.Pm.enabled) return
+        val seq = intent?.getStringExtra("pm_seq") ?: return
+        if (seq == lastSeq) return
+        lastSeq = seq
+        val mode = intent.getStringExtra("pm_nobackend")
+        dev.padermodern.data.BackendApi.forceOff = mode == "1" || mode == "2"
+        dev.padermodern.data.BackendApi.providerOnly = mode == "2"
+        bench?.benchSearch(intent.getStringExtra("pm_from").orEmpty(), intent.getStringExtra("pm_to").orEmpty(), intent.getStringExtra("pm_at"), seq, intent.getStringExtra("pm_day")?.toLongOrNull() ?: 0L)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
             val vm: AppViewModel = viewModel()
+            androidx.compose.runtime.LaunchedEffect(Unit) { bench = vm; handleBench(intent) }
             val mode by vm.store.themeMode.collectAsState()
             val dark = when (mode) {
                 ThemeMode.System -> isSystemInDarkTheme()

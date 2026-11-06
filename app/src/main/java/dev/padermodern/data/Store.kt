@@ -54,6 +54,18 @@ class Store(context: Context) {
     )
     val tripPrefs: StateFlow<TripPrefs> = _tripPrefs
 
+    fun countHabitSearch(predicted: Boolean) {
+        prefs.edit().putInt("habitSearches", prefs.getInt("habitSearches", 0) + 1)
+            .putInt("habitHits", prefs.getInt("habitHits", 0) + if (predicted) 1 else 0).apply()
+    }
+    fun habitStats() = "habit hits ${prefs.getInt("habitHits", 0)}/${prefs.getInt("habitSearches", 0)}"
+
+    fun countShadow(matched: Int, total: Int) {
+        prefs.edit().putInt("shadowMatched", prefs.getInt("shadowMatched", 0) + matched)
+            .putInt("shadowTotal", prefs.getInt("shadowTotal", 0) + total).apply()
+    }
+    fun shadowStats() = "shadow total ${prefs.getInt("shadowMatched", 0)}/${prefs.getInt("shadowTotal", 0)}"
+
     fun setTripPrefs(p: TripPrefs) {
         _tripPrefs.value = p
         prefs.edit().putString("routeStyle", p.style.name).putInt("minTransfer", p.minTransferMin).putInt("maxChanges", p.maxChanges).apply()

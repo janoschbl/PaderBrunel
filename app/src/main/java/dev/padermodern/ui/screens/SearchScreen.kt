@@ -43,6 +43,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -88,6 +89,7 @@ fun SearchScreen(
     offerMyLocation: Boolean,
     onPick: (Station) -> Unit,
     onBack: () -> Unit,
+    onPreview: ((Station?) -> Unit)? = null,
 ) {
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<Station>>(emptyList()) }
@@ -98,17 +100,28 @@ fun SearchScreen(
     val focus = remember { FocusRequester() }
 
     LaunchedEffect(Unit) { focus.requestFocus() }
+    DisposableEffect(Unit) { onDispose { onPreview?.invoke(null) } }
     LaunchedEffect(query) {
         error = null
+        onPreview?.invoke(null)
+        results = emptyList()
         if (query.trim().length < 2) {
             results = emptyList(); loading = false; return@LaunchedEffect
         }
-        delay(300)
         loading = true
-        runCatching { SrsApi.searchStations(query.trim(), onlyStops) }
-            .onSuccess { results = it }
-            .onFailure { error = "Suche fehlgeschlagen: ${it.message}" }
-        loading = false
+        try {
+            delay(300)
+            results = SrsApi.searchStations(query.trim(), onlyStops)
+            loading = false
+            // Speculate only about the best match after typing has settled.
+            delay(400)
+            onPreview?.invoke(results.firstOrNull())
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            error = "Suche fehlgeschlagen: ${e.message}"
+            loading = false
+        }
     }
 
     Scaffold(

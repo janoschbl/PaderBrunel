@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan: Verbindungssuche in unter 300 ms</title>
+<style>
+:root{
+  --bg:#0d0d0d;--hover:#161616;--border:#2a2a2a;--text:#e8e8e8;--muted:#888;--dim:#555;
+  --accent:#293fc5;--green:#28c840;--blue:#4f6dff;--yellow:#ffbd2e;--red:#ff5f57;
+  --mono:"Fira Code","JetBrains Mono","Cascadia Code",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{width:min(900px,calc(100% - 48px));margin:0 auto;padding:40px 0 64px}
+.eyebrow{font:11px/1.4 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+h1{font-size:22px;line-height:1.3;margin:6px 0 4px;font-weight:600}
+h2{font-size:16px;margin:4px 0 12px;font-weight:600}
+.lead{color:var(--muted);margin:0 0 32px}
+section{margin:0 0 40px}
+p{margin:0 0 10px}
+.muted{color:var(--muted)}
+code{font:12px var(--mono);color:var(--text);background:var(--hover);border:1px solid var(--border);border-radius:3px;padding:0 4px}
+.panel{border:1px solid var(--border);border-radius:8px;padding:16px;background:var(--bg);margin:0 0 8px}
+.panel svg{width:100%;height:auto;display:block}
+.note{font:11px/1.5 var(--mono);color:var(--dim);margin:0 0 16px}
+.row{display:grid;grid-template-columns:150px 1fr;gap:16px;padding:10px 8px;border-top:1px solid var(--border);transition:background .12s}
+.row:last-child{border-bottom:1px solid var(--border)}
+.row:hover{background:var(--hover)}
+.row .k{font:11px/1.6 var(--mono);color:var(--muted)}
+.row .v p:last-child{margin:0}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;vertical-align:top;padding:10px 8px;border-top:1px solid var(--border)}
+tr:last-child td{border-bottom:1px solid var(--border)}
+th{font:11px var(--mono);color:var(--dim);font-weight:400;text-transform:uppercase;letter-spacing:.08em}
+td:first-child{font:11px/1.6 var(--mono);color:var(--muted);width:130px}
+tr:hover td{background:var(--hover)}
+td{transition:background .12s}
+.tag{font:11px var(--mono)}
+.g{color:var(--green)}.b{color:var(--blue)}.y{color:var(--yellow)}.r{color:var(--red)}
+svg text{font-family:var(--mono);font-size:11px;fill:var(--muted)}
+svg .t{fill:var(--text)}
+footer{font:11px var(--mono);color:var(--dim);border-top:1px solid var(--border);padding-top:16px}
+@media (prefers-reduced-motion:reduce){.row,td{transition:none}}
+@media (max-width:640px){.row{grid-template-columns:1fr;gap:2px}}
+</style>
+</head>
+<body>
+<main>
+
+<div class="eyebrow">padermodern · plan · 2026-11-02</div>
+<h1>Verbindungssuche in unter 300 ms</h1>
+<p class="lead">Der Endpunkt <code>/routes</code> braucht 1,5 bis 23 Sekunden und antwortet unter Last mit 502. Der Plan holt die Antwort deshalb vom Handy statt vom Server.</p>
+
+<!-- 1 TL;DR -->
+<section>
+<div class="eyebrow">Kurzfassung</div>
+<h2>Drei Schritte, in dieser Reihenfolge</h2>
+<div class="panel">
+<svg viewBox="0 0 800 150" role="img" aria-label="Drei Stufen der Beschleunigung">
+  <g>
+    <rect x="10" y="20" width="240" height="100" rx="4" fill="#161616" stroke="#ffbd2e"/>
+    <text x="24" y="42" class="t" style="fill:#ffbd2e">1 · Zuverlässig machen</text>
+    <text x="24" y="64">502 wiederholen, Fan-out von 16</text>
+    <text x="24" y="80">auf 4 Anfragen senken, kein</text>
+    <text x="24" y="96">Totalausfall bei einem Fehler</text>
+    <text x="24" y="112" style="fill:#555">Tage 1 bis 3</text>
+  </g>
+  <path d="M254 70h22" stroke="#555" stroke-width="1.5" fill="none"/><path d="M272 65l6 5-6 5" stroke="#555" stroke-width="1.5" fill="none"/>
+  <g>
+    <rect x="280" y="20" width="240" height="100" rx="4" fill="#161616" stroke="#4f6dff"/>
+    <text x="294" y="42" class="t" style="fill:#4f6dff">2 · Vorwärmen und merken</text>
+    <text x="294" y="64">Cache auf der Platte, Treffer</text>
+    <text x="294" y="80">für häufige Strecken im Voraus</text>
+    <text x="294" y="96">laden, Verbindung vorab öffnen</text>
+    <text x="294" y="112" style="fill:#555">Wochen 1 bis 2</text>
+  </g>
+  <path d="M524 70h22" stroke="#555" stroke-width="1.5" fill="none"/><path d="M542 65l6 5-6 5" stroke="#555" stroke-width="1.5" fill="none"/>
+  <g>
+    <rect x="550" y="20" width="240" height="100" rx="4" fill="#161616" stroke="#28c840"/>
+    <text x="564" y="42" class="t" style="fill:#28c840">3 · Fahrplan lokal rechnen</text>
+    <text x="564" y="64">Fahrplan auf dem Handy,</text>
+    <text x="564" y="80">eigener Planer, Server nur</text>
+    <text x="564" y="96">noch für Echtzeit und Tarife</text>
+    <text x="564" y="112" style="fill:#555">Wochen 2 bis 6</text>
+  </g>
+</svg>
+</div>
+<p class="note">Ziel: erste Verbindung nach dem Tippen in unter 300 ms bei bekannter Strecke, unter 2 s bei unbekannter Strecke. Auf dem Pixel 9a sind es heute 2,7 s bis zur ersten und 9,1 s bis zur letzten Verbindung.</p>
+</section>
+
+<!-- 2 Starting point -->
+<section>
+<div class="eyebrow">Ausgangslage</div>
+<h2>Der Server ist langsam, und die App verschärft das</h2>
+<div class="panel">
+<svg viewBox="0 0 800 300" role="img" aria-label="Antwortzeiten der Endpunkte auf einer logarithmischen Skala">
+  <g stroke="#2a2a2a">
+    <line x1="170" y1="30" x2="170" y2="260"/><line x1="396" y1="30" x2="396" y2="260"/>
+    <line x1="622" y1="30" x2="622" y2="260"/><line x1="730" y1="30" x2="730" y2="260"/>
+  </g>
+  <text x="170" y="20" text-anchor="middle">0,1 s</text><text x="396" y="20" text-anchor="middle">1 s</text>
+  <text x="622" y="20" text-anchor="middle">10 s</text><text x="730" y="20" text-anchor="middle">30 s</text>
+
+  <text x="10" y="54">stations</text>
+  <rect x="274" y="44" width="17" height="14" rx="3" fill="#161616" stroke="#28c840"/>
+  <text x="300" y="55" class="t">0,3 s</text>
+
+  <text x="10" y="90">departuresinfo</text>
+  <rect x="364" y="80" width="21" height="14" rx="3" fill="#161616" stroke="#28c840"/>
+  <text x="394" y="91" class="t">0,7 bis 0,9 s · 514 KB</text>
+
+  <text x="10" y="126">routes, 0 Umstiege</text>
+  <rect x="442" y="116" width="100" height="14" rx="3" fill="#161616" stroke="#ffbd2e"/>
+  <text x="552" y="127" class="t">1,6 bis 4,4 s</text>
+
+  <text x="10" y="162">routes, 1 Umstieg</text>
+  <rect x="425" y="152" width="278" height="14" rx="3" fill="#161616" stroke="#ff5f57"/>
+  <text x="712" y="163" class="t" text-anchor="end" style="fill:#e8e8e8"> </text>
+  <text x="430" y="148">1,3 bis 22,8 s · 120 bis 180 KB</text>
+
+  <text x="10" y="198">routes, 2 Umstiege</text>
+  <rect x="440" y="188" width="254" height="14" rx="3" fill="#161616" stroke="#ff5f57"/>
+  <text x="445" y="184">1,6 bis 20,7 s · bis 330 KB</text>
+
+  <text x="10" y="238">Pixel 9a, Suche</text>
+  <circle cx="494" cy="234" r="5" fill="#161616" stroke="#4f6dff"/>
+  <text x="504" y="238" class="t">2,7 s erste</text>
+  <circle cx="613" cy="234" r="5" fill="#161616" stroke="#ffbd2e"/>
+  <text x="623" y="238" class="t">9,1 s fertig, mit 502</text>
+</svg>
+</div>
+<p class="note">Messung vom Rechner mit curl am 2026-11-02 gegen service.ivanto.de, je 2 bis 14 Anfragen, Geseke Bahnhof nach Paderborn. Die Balken zeigen Minimum bis Maximum. Gerätewerte: adb, 1 Messung je Zeitpunkt, Genauigkeit etwa 1 s.</p>
+
+<div class="row"><div class="k">Befund 1</div><div class="v"><p><span class="r">502 unter Last.</span> Eine Suche startet bis zu 16 Anfragen an <code>/routes</code> (8 Haltestellenpaare, je ein Durchgang mit 1 und mit 2 Umstiegen). Mit 8 gleichzeitigen Anfragen stieg die Antwortzeit von 1,3 s auf 16,7 s. Auf dem Handy lieferte der Server 502, und die Oberfläche zeigte "Fahrplansuche unvollständig" mit nur einer Verbindung. Das trat in 2 von 2 Läufen auf.</p></div></div>
+<div class="row"><div class="k">Befund 2</div><div class="v"><p><span class="y">Lange Ausreißer auch einzeln.</span> Dieselbe Anfrage dauerte nacheinander 1,5 s und 22,8 s. Der Server stockt unabhängig von der Antwortgröße. Eine zweite, gleiche Anfrage nach etwa 2 s (Hedging) fängt das ab.</p></div></div>
+<div class="row"><div class="k">Befund 3</div><div class="v"><p><span class="g">Abfahrtstafeln sind schnell und reich.</span> <code>departuresinfo</code> antwortet in 0,7 s, funktioniert mit einem Datum von morgen und liefert pro Abfahrt die komplette Halteliste (24 Haltestellen mit Zeiten, <code>tripCode</code>, <code>lineId</code>). Das reicht, um den Fahrplan nachzubauen.</p></div></div>
+<div class="row"><div class="k">Befund 4</div><div class="v"><p><span class="g">Hinweistexte sind raus.</span> Auf dem Gerät geprüft: Unter "Verbindungen suchen" steht kein Text mehr, und über den Ergebnissen fehlt die Live-Statuszeile.</p></div></div>
+<div class="row"><div class="k">Heute im Code</div><div class="v"><p><code>RoutePlans</code> hält 48 Einträge im Speicher, 15 min Lebensdauer. <code>SrsApi.routeCache</code> hält 45 s. <code>DepartureRequests</code> hält 30 s. Alles geht beim Beenden des Prozesses verloren. <code>TripPreparation</code> wärmt nur die gerade eingegebene Strecke vor, nicht die gewohnten Strecken.</p></div></div>
+</section>
+
+<!-- 3 Design -->
+<section>
+<div class="eyebrow">Entwurf</div>
+<h2>Erst lokal antworten, dann still abgleichen</h2>
+<div class="panel">
+<svg viewBox="0 0 800 330" role="img" aria-label="Ablauf einer Suche mit lokalem Fahrplan, Plattencache und Server">
+  <defs><marker id="a" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0 0l6 4-6 4z" fill="#555"/></marker></defs>
+  <g fill="#161616" stroke-width="1">
+    <rect x="10" y="130" width="110" height="50" rx="4" stroke="#2a2a2a"/>
+    <rect x="170" y="30" width="190" height="56" rx="4" stroke="#28c840"/>
+    <rect x="170" y="130" width="190" height="56" rx="4" stroke="#28c840"/>
+    <rect x="170" y="230" width="190" height="56" rx="4" stroke="#ffbd2e"/>
+    <rect x="430" y="130" width="150" height="56" rx="4" stroke="#4f6dff"/>
+    <rect x="640" y="30" width="150" height="56" rx="4" stroke="#28c840"/>
+    <rect x="640" y="130" width="150" height="56" rx="4" stroke="#4f6dff"/>
+    <rect x="640" y="230" width="150" height="56" rx="4" stroke="#ffbd2e"/>
+  </g>
+  <g class="t">
+    <text x="65" y="160" text-anchor="middle" style="fill:#e8e8e8">Tippen</text>
+    <text x="265" y="54" text-anchor="middle" style="fill:#e8e8e8">Plattencache</text>
+    <text x="265" y="72" text-anchor="middle">gleiche Anfrage, &lt; 20 ms</text>
+    <text x="265" y="154" text-anchor="middle" style="fill:#e8e8e8">Lokaler Planer</text>
+    <text x="265" y="172" text-anchor="middle">Fahrplan im Speicher</text>
+    <text x="265" y="254" text-anchor="middle" style="fill:#e8e8e8">Server /routes</text>
+    <text x="265" y="272" text-anchor="middle">gedeckelt, mit Hedging</text>
+    <text x="505" y="154" text-anchor="middle" style="fill:#e8e8e8">Zusammenführen</text>
+    <text x="505" y="172" text-anchor="middle">nach Zugschlüssel</text>
+    <text x="715" y="54" text-anchor="middle" style="fill:#e8e8e8">Liste sofort</text>
+    <text x="715" y="72" text-anchor="middle">Plan, ohne Statustext</text>
+    <text x="715" y="154" text-anchor="middle" style="fill:#e8e8e8">Echtzeit</text>
+    <text x="715" y="172" text-anchor="middle">departuresinfo je Fahrt</text>
+    <text x="715" y="254" text-anchor="middle" style="fill:#e8e8e8">Preise, Kartenlinie</text>
+    <text x="715" y="272" text-anchor="middle">erst im Detail laden</text>
+  </g>
+  <g stroke="#555" stroke-width="1.5" fill="none" marker-end="url(#a)">
+    <path d="M120 150 C145 150 145 58 168 58"/>
+    <path d="M120 155h48"/>
+    <path d="M120 160 C145 160 145 258 168 258"/>
+    <path d="M360 58 C560 58 560 60 638 58"/>
+    <path d="M360 158h68"/>
+    <path d="M360 258 C400 258 400 175 428 172"/>
+    <path d="M580 158h58"/>
+    <path d="M715 130V88"/>
+    <path d="M715 186v42"/>
+  </g>
+</svg>
+</div>
+<p class="note">Die Oberfläche zeigt die erste Antwort, die ankommt. Spätere Antworten ersetzen Einträge nach dem Schlüssel <code>Route.key</code>. Die Oberfläche zeigt keinen Text wie "wird geladen" oder "aktualisiert".</p>
+
+<div class="row"><div class="k">A · Zuverlässigkeit</div><div class="v">
+<p>Ändere <code>SrsApi.routesBetween</code> und <code>TripSearch.fetch</code> so, dass ein 502 oder Timeout einmal nach 400 ms wiederholt wird. Ein fehlgeschlagenes Haltestellenpaar bricht die Suche nicht mehr ab, sondern fehlt nur. Setze <code>ROUTE_PARALLELISM</code> von 8 auf 3. Starte den Durchgang mit 2 Umstiegen erst, wenn der mit 1 Umstieg fertig ist. Begrenze die Paare von 8 auf 4, nach Gehzeit sortiert.</p>
+<p class="muted">Warum: Auf dem Gerät hat die App den Server selbst überlastet. Weniger gleichzeitige Anfragen sind schneller als viele.</p></div></div>
+
+<div class="row"><div class="k">B · Hedging</div><div class="v">
+<p>Antwortet <code>/routes</code> nach 2,5 s nicht, sendet die App dieselbe Anfrage ein zweites Mal und nimmt die erste Antwort. Höchstens eine Zusatzanfrage je Paar und höchstens 2 Zusatzanfragen je Suche. Die Messung zeigt Median 1,5 s und Ausreißer bis 23 s, hier hilft das am meisten.</p></div></div>
+
+<div class="row"><div class="k">C · Plattencache</div><div class="v">
+<p>Speichere jede erfolgreiche Antwort von <code>RoutePlans</code> in einer SQLite-Tabelle (<code>from</code>, <code>to</code>, Zeit auf 5 min gerundet, <code>arrival</code>, <code>maxChanges</code>, Nutzlast als komprimiertes JSON). Beim Tippen auf "Verbindungen suchen" liefert der Cache sofort, danach läuft der Abgleich im Hintergrund (stale-while-revalidate). Abgelaufene Einträge zeigt die App nur, wenn die Abfahrtszeit noch in der Zukunft liegt. Einträge für vergangene Zeiten werden gelöscht.</p></div></div>
+
+<div class="row"><div class="k">D · Gewohnheiten</div><div class="v">
+<p>Die App zählt jede abgeschickte Suche als <code>(from, to, Wochentag, Stunde)</code> und die letzte Haltestelle in der Nähe. Beim Start und 15 Minuten vor der häufigsten Uhrzeit (WorkManager) lädt sie die 2 wahrscheinlichsten Strecken für "jetzt" vor. Die Vorhersage nimmt den Ort des Handys als Start und die häufigste Zielhaltestelle zu dieser Zeit. Bei einem Treffer öffnet die App die Strecke schon im Formular.</p>
+<p class="muted">Obergrenze: 2 Strecken beim Start, 4 pro Stunde, nur bei mehr als 20 % Akku und nicht im Datensparmodus.</p></div></div>
+
+<div class="row"><div class="k">E · Verbindung</div><div class="v">
+<p>Beim App-Start öffnet die App eine TLS-Verbindung per Anfrage an <code>lineplans/</code> (77 ms, 305 Byte). OkHttp hält sie im Pool, die erste Suche spart Verbindungsaufbau. Zerlege die Antwort mit 500 KB auf <code>Dispatchers.Default</code> und messe die Parsedauer auf dem Pixel. Prüfe, ob <code>departuresinfo</code> unbekannte Parameter wie <code>limit</code> oder <code>duration</code> annimmt, um 514 KB zu verkleinern.</p></div></div>
+
+<div class="row"><div class="k">F · Lokaler Fahrplan</div><div class="v">
+<p>Der Kern. <code>departuresinfo</code> liefert Fahrten samt Halteliste. Ein Crawler lädt für eine kleine Menge von Knotenhaltestellen (Paderborn Hbf, Geseke, Büren, Lippstadt und weitere, per Mengenüberdeckung gewählt, sodass jede Linie mindestens einmal vorkommt) die Abfahrten für heute und morgen in Schritten von 30 Minuten. Aus den Halten entstehen Fahrten, gespeichert nach <code>lineId</code>, <code>tripCode</code> und erster Abfahrt. Ein Connection-Scan-Algorithmus (RAPTOR) sucht darauf in Millisekunden.</p>
+<p>Gehwege und Umstiegszeiten übernimmt <code>TripSearch</code> wie bisher. Preise und Linienverlauf liefert weiter <code>/routes</code>, aber erst, wenn der Nutzer eine Verbindung öffnet.</p>
+<p class="muted">Offen: Datenmenge. Ein Abruf für den Hbf hat 514 KB roh und 52 KB komprimiert. Phase 4 misst, wie viele Abrufe pro Tag nötig sind. Eine Zahl dafür liegt noch nicht vor.</p></div></div>
+
+<div class="row"><div class="k">G · Echtzeit</div><div class="v">
+<p><code>RouteRealtime</code> bleibt wie es ist: je Fahrt eine Abfahrtstafel, 0,7 s, parallel. Neu: Die App wärmt die Tafeln der ersten Fahrt der 3 obersten Ergebnisse schon während der lokalen Suche, damit die Verspätung mit der Liste erscheint. <code>DepartureRequests</code> hält Tafeln heute 30 s, das bleibt.</p></div></div>
+
+<div class="row"><div class="k">H · Offener Datensatz</div><div class="v">
+<p>Als Alternative zum Crawler: Prüfe, ob die bundesweiten Soll-Fahrplandaten (GTFS, DELFI) die Paderborner Linien enthalten und unter welcher Lizenz. Ein regionaler Auszug als Datei im Release wäre kleiner und stabiler als 100 Abrufe pro Tag gegen einen inoffiziellen Server. Das ist in Phase 4 Teil der Prüfung.</p></div></div>
+</section>
+
+<!-- 4 Risks -->
+<section>
+<div class="eyebrow">Risiken</div>
+<h2>Was schiefgehen kann</h2>
+<table>
+<tr><th>Risiko</th><th>Folge</th><th>Gegenmaßnahme</th></tr>
+<tr><td><span class="r">Server-Last</span></td><td>Noch mehr Vorwärmen erzeugt noch mehr 502.</td><td>Gesamtbudget von 6 Anfragen gleichzeitig. Vorwärmen hat niedrigere Priorität als eine Suche und bricht ab, sobald der Nutzer tippt.</td></tr>
+<tr><td><span class="y">Planer weicht ab</span></td><td>Der lokale Planer findet eine Verbindung, die der Server nicht kennt, oder verpasst eine.</td><td>Schattenbetrieb: Lokal und Server laufen beide, die App protokolliert Unterschiede. Umschalten erst bei 95 % Übereinstimmung der ersten 3 Verbindungen in 50 Stichproben.</td></tr>
+<tr><td><span class="y">Alte Daten</span></td><td>Baustellen, Ausfälle, geänderter Fahrplan.</td><td>Lokale Daten leben höchstens 24 h. <code>trafficReports</code> wird beim Start geladen und markiert betroffene Linien. Der Serverabgleich überschreibt Abweichungen.</td></tr>
+<tr><td><span class="y">Inoffizielle API</span></td><td>Der Anbieter ändert oder sperrt den Zugang.</td><td>Crawler mit geringer Rate und derselben Kennung wie die Original-App. GTFS als Rückfallebene (Abschnitt H).</td></tr>
+<tr><td><span class="y">Speicher, Akku</span></td><td>Ein Tag Fahrplan und Hintergrundläufe kosten Platz und Strom.</td><td>Daten auf unter 30 MB deckeln. Hintergrundläufe nur am Netz mit genug Akku. Wert in Phase 4 messen.</td></tr>
+<tr><td><span class="b">Cache falsch</span></td><td>Die App zeigt eine Verbindung, die schon abgefahren ist.</td><td>Der Schlüssel enthält die gerundete Zeit. Abgelaufene Fahrten fallen beim Lesen heraus.</td></tr>
+</table>
+</section>
+
+<!-- 5 Phases -->
+<section>
+<div class="eyebrow">Phasen</div>
+<h2>Sechs Wochen, nach jeder Phase ein lauffähiger Stand</h2>
+<div class="panel">
+<svg viewBox="0 0 800 280" role="img" aria-label="Zeitplan der Phasen über sechs Wochen">
+  <g stroke="#2a2a2a">
+    <line x1="170" y1="30" x2="170" y2="250"/><line x1="263" y1="30" x2="263" y2="250"/><line x1="356" y1="30" x2="356" y2="250"/>
+    <line x1="449" y1="30" x2="449" y2="250"/><line x1="542" y1="30" x2="542" y2="250"/><line x1="635" y1="30" x2="635" y2="250"/><line x1="728" y1="30" x2="728" y2="250"/>
+  </g>
+  <g text-anchor="middle"><text x="216" y="20">W1</text><text x="309" y="20">W2</text><text x="402" y="20">W3</text><text x="495" y="20">W4</text><text x="588" y="20">W5</text><text x="681" y="20">W6</text></g>
+  <text x="10" y="50">P0 Zuverlässig</text><rect x="170" y="40" width="40" height="16" rx="3" fill="#161616" stroke="#ffbd2e"/>
+  <text x="10" y="82">P1 Plattencache</text><rect x="200" y="72" width="50" height="16" rx="3" fill="#161616" stroke="#4f6dff"/>
+  <text x="10" y="114">P2 Verbindung</text><rect x="230" y="104" width="46" height="16" rx="3" fill="#161616" stroke="#4f6dff"/>
+  <text x="10" y="146">P3 Gewohnheiten</text><rect x="263" y="136" width="93" height="16" rx="3" fill="#161616" stroke="#4f6dff"/>
+  <text x="10" y="178">P4 Prüfung lokal</text><rect x="310" y="168" width="93" height="16" rx="3" fill="#161616" stroke="#ffbd2e"/>
+  <text x="10" y="210">P5 Planer, Schatten</text><rect x="403" y="200" width="186" height="16" rx="3" fill="#161616" stroke="#4f6dff"/>
+  <text x="10" y="242">P6 Lokal zuerst</text><rect x="589" y="232" width="100" height="16" rx="3" fill="#161616" stroke="#28c840"/>
+</svg>
+</div>
+<p class="note">Gelb: Prüfen oder Messen. Blau: Bauen. Grün: Ausliefern. Die Dauer ist eine Schätzung für eine Person und hängt am Ergebnis von P4.</p>
+
+<table>
+<tr><th>Phase</th><th>Inhalt</th><th>Fertig, wenn</th></tr>
+<tr><td>P0 Zuverlässig</td><td>Wiederholung bei 502, Fan-out auf 3 gleichzeitig und 4 Paare, 2 Umstiege nach 1 Umstieg, Zeitmessung nur im Debug-Log (kein Text in der Oberfläche).</td><td>20 Suchen Geseke nach Marsenweg 6 auf dem Pixel enden ohne Fehlermeldung. Median bis zur ersten Verbindung unter 2,5 s.</td></tr>
+<tr><td>P1 Plattencache</td><td>SQLite-Cache für <code>RoutePlans</code>, Abgleich im Hintergrund, Aufräumen alter Zeiten.</td><td>Eine wiederholte Suche zeigt nach dem Antippen in unter 300 ms Ergebnisse, auch nach <code>am force-stop</code>.</td></tr>
+<tr><td>P2 Verbindung</td><td>Vorab-Verbindung beim Start, Parsen auf <code>Default</code>, Hedging nach 2,5 s, Parameter-Test für <code>departuresinfo</code>.</td><td>Das 95. Perzentil der Gesamtdauer einer unbekannten Suche liegt unter 6 s bei 30 Läufen. Parsedauer ist gemessen.</td></tr>
+<tr><td>P3 Gewohnheiten</td><td>Zähler je Strecke, Vorhersage, Vorwärmen beim Start, WorkManager vor der üblichen Zeit.</td><td>Nach 5 Tagen Nutzung trifft die Vorhersage in mindestens 70 % der Suchen. Diese Suchen liefern in unter 300 ms.</td></tr>
+<tr><td>P4 Prüfung lokal</td><td>Crawler für einen Tag, Größe und Abrufzahl messen, <code>tripCode</code> auf Eindeutigkeit prüfen, GTFS-Lizenz und Abdeckung klären.</td><td>Ein Tag Fahrplan für die Knotenmenge liegt in einer Datei. Größe, Abrufe und Dauer stehen im Plan. Entscheidung Crawler oder GTFS ist getroffen.</td></tr>
+<tr><td>P5 Planer, Schatten</td><td>RAPTOR auf den lokalen Fahrten, Gehwege und Umstiegszeiten aus <code>TripSearch</code>. Lokal und Server laufen parallel, Unterschiede im Log.</td><td>In 50 Stichproben stimmen die ersten 3 Verbindungen in 95 % mit dem Server überein. Suche lokal unter 50 ms.</td></tr>
+<tr><td>P6 Lokal zuerst</td><td>Die Oberfläche zeigt das lokale Ergebnis zuerst. Der Serverabgleich ersetzt Einträge still. Preise und Linienverlauf laden beim Öffnen einer Verbindung.</td><td>Jede Suche zeigt in unter 300 ms ein Ergebnis, auch bei 502 oder ohne Netz. Die Echtzeit erscheint innerhalb von 1,5 s.</td></tr>
+</table>
+</section>
+
+<!-- 6 Tests -->
+<section>
+<div class="eyebrow">Tests</div>
+<h2>Jede Phase hat eine Zahl und einen Lauf auf dem Gerät</h2>
+<div class="panel">
+<svg viewBox="0 0 800 150" role="img" aria-label="Messpfad vom Tippen bis zur ersten Verbindung">
+  <g fill="#161616" stroke="#2a2a2a">
+    <rect x="10" y="40" width="150" height="56" rx="4"/><rect x="215" y="40" width="150" height="56" rx="4"/>
+    <rect x="420" y="40" width="150" height="56" rx="4"/><rect x="625" y="40" width="165" height="56" rx="4"/>
+  </g>
+  <g text-anchor="middle">
+    <text x="85" y="64" style="fill:#e8e8e8">adb input tap</text><text x="85" y="82">t0 auf dem Rechner</text>
+    <text x="290" y="64" style="fill:#e8e8e8">logcat-Marke</text><text x="290" y="82">Start, erste, letzte</text>
+    <text x="495" y="64" style="fill:#e8e8e8">Screenshot</text><text x="495" y="82">gleicher Stand wie Log</text>
+    <text x="707" y="64" style="fill:#e8e8e8">CSV je Lauf</text><text x="707" y="82">Median, p95, Fehler</text>
+  </g>
+  <g stroke="#555" stroke-width="1.5" fill="none"><path d="M162 68h50"/><path d="M367 68h50"/><path d="M572 68h50"/></g>
+</svg>
+</div>
+<p class="note">Die Marken kommen aus einer Debug-Zeile mit Tag <code>PMTIME</code>, nicht aus der Oberfläche. Der Release-Build enthält sie nicht.</p>
+<div class="row"><div class="k">Einheitentests</div><div class="v"><p>Mit den vorhandenen Fake-Quellen (<code>TripSearchSource</code>): Wiederholung bei 502, ein Paar fällt aus und die anderen bleiben, Hedging nimmt die schnellere Antwort, Cache-Schlüssel mit gerundeter Zeit, Ablauf abgefahrener Fahrten.</p></div></div>
+<div class="row"><div class="k">Planer-Vergleich</div><div class="v"><p>Ein Test lädt aufgezeichnete <code>departuresinfo</code>- und <code>routes</code>-Antworten und vergleicht die ersten 3 Verbindungen von lokalem Planer und Server nach Zugschlüssel und Zeit. Fehlschlag ab 1 Abweichung in den festen Fixtures.</p></div></div>
+<div class="row"><div class="k">Gerät, Pixel 9a</div><div class="v"><p>Ein Skript auf Basis von <code>tools/ui.sh</code> führt 20 Suchen aus, kalt und warm, mit und ohne Flugmodus, und schreibt Median und p95. Szenarien: bekannte Strecke, neue Strecke, Adresse als Ziel, Ankunft statt Abfahrt, Durchgang mit 502 (Server per Proxy gestört).</p></div></div>
+</section>
+
+<!-- 7 Open decisions -->
+<section>
+<div class="eyebrow">Offene Entscheidungen</div>
+<h2>Was du festlegen musst</h2>
+<div class="row"><div class="k">Datenquelle</div><div class="v"><p>Crawler gegen <code>departuresinfo</code> oder offenes GTFS. Empfehlung: Beides in P4 prüfen, GTFS nehmen, wenn Lizenz und Abdeckung stimmen, weil es den Server nicht belastet.</p></div></div>
+<div class="row"><div class="k">Eigener Server</div><div class="v"><p>Ein kleiner Dienst, der den Fahrplan einmal für alle Handys crawlt und als Datei ausliefert. Er entlastet den Anbieter, kostet aber Betrieb und Geld. Empfehlung: erst nach P6, falls der Crawler auf dem Handy zu teuer ist.</p></div></div>
+<div class="row"><div class="k">Vorwärmen mobil</div><div class="v"><p>Darf die App im Mobilfunk vorladen, oder nur im WLAN? Empfehlung: erlauben, mit 2 Strecken pro Stunde und Datensparmodus als Sperre.</p></div></div>
+<div class="row"><div class="k">Hedging</div><div class="v"><p>Zusatzanfragen erhöhen die Last des Servers. Empfehlung: ja, mit hartem Limit von 2 je Suche.</p></div></div>
+<div class="row"><div class="k">Speicherformat</div><div class="v"><p>SQLite oder Dateien mit kotlinx-serialization. Empfehlung: SQLite, weil Löschen nach Zeit und Abfragen für den Planer dort einfach sind.</p></div></div>
+</section>
+
+<footer>padermodern · schnelle-suche · Stand 2026-11-02 · Quellen: curl gegen service.ivanto.de/srs/api/v1, adb-Lauf auf Pixel 9a, Code unter app/src/main/java/dev/padermodern/data</footer>
+</main>
+</body>
+</html>

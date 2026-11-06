@@ -7,7 +7,10 @@ import java.time.format.DateTimeFormatter
 private val parser = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssZ")
 private val hhmm = DateTimeFormatter.ofPattern("HH:mm")
 
-fun parseTime(s: String?): ZonedDateTime? = s?.let { runCatching { ZonedDateTime.parse(it, parser) }.getOrNull() }
+fun parseTime(s: String?): ZonedDateTime? = s?.let { value ->
+    runCatching { ZonedDateTime.parse(value, parser) }
+        .recoverCatching { ZonedDateTime.parse(value) }.getOrNull()
+}
 
 fun ZonedDateTime.iso(): String = format(parser)
 

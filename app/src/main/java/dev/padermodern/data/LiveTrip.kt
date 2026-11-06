@@ -1,8 +1,5 @@
 package dev.padermodern.data
 
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import java.time.Duration
 import java.time.ZonedDateTime
 
@@ -23,35 +20,11 @@ private fun PartialRoute.effArrival() = parseTime(expectedArrivalDate ?: station
 fun Station.effective() = parseTime(expectedDate ?: date)
 
 object LiveTrip {
-    suspend fun refresh(route: Route): Route = coroutineScope {
-        route.copy(
-            partialRoutes = route.partialRoutes.map { leg ->
-                async { if (leg.isWalk) leg else refreshLeg(leg) }
-            }.awaitAll(),
-        )
+    suspend fun refresh(route: Route): Route {
+        val result = RouteRealtime.refresh(route)
+        if (!result.verified) throw java.io.IOException(result.error ?: "Echtzeitdaten konnten nicht verifiziert werden")
+        return result.route
     }
-
-    private suspend fun refreshLeg(leg: PartialRoute): PartialRoute = runCatching {
-        val first = leg.stations.first()
-        val plannedDep = parseTime(first.date ?: leg.departureDate)!!
-        val deps = SrsApi.departures(first.id!!, plannedDep.minusMinutes(2))
-        val match = deps.firstOrNull { it.shortName == leg.shortName && parseTime(it.departureDate) == plannedDep }
-            ?: return@runCatching leg
-        val live = match.route?.partialRoutes?.firstOrNull { !it.isWalk }?.stations.orEmpty().associateBy { it.id }
-        val stations = leg.stations.mapIndexed { i, s ->
-            val rt = live[s.id]
-            if (rt == null) s else s.copy(
-                expectedDate = rt.expectedDate,
-                platform = rt.platform ?: s.platform,
-                canceled = rt.canceled || (i == 0 && match.canceled),
-            )
-        }
-        leg.copy(
-            stations = stations,
-            expectedDepartureDate = stations.first().expectedDate ?: match.expectedDepartureDate ?: leg.expectedDepartureDate,
-            expectedArrivalDate = stations.last().expectedDate ?: leg.expectedArrivalDate,
-        )
-    }.getOrDefault(leg)
 
     private fun mins(a: ZonedDateTime, b: ZonedDateTime) = Duration.between(a, b).toMinutes()
 
