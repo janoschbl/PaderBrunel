@@ -55,6 +55,39 @@ class TripSearchTest {
         assertEquals(1, ranked.count { it.departureDate == at(13, 0) })
     }
 
+    private fun walk(dep: Pair<Int, Int>, minutes: Int) = PartialRoute(
+        clazz = "walkway", type = 100, transferTime = minutes,
+        departureDate = at(dep.first, dep.second), arrivalDate = now.withHour(dep.first).withMinute(dep.second).plusMinutes(minutes.toLong()).iso(),
+    )
+
+    private fun trip(vararg legs: PartialRoute) = Route(
+        partialRoutes = legs.toList(), changes = legs.count { !it.isWalk } - 1,
+        departureDate = legs.first().departureDate, arrivalDate = legs.last().arrivalDate,
+    )
+
+    /** Marsenweg to Geseke on 2026-11-07: the app offered the RB89 at 18:51 only behind early feeders. */
+    @Test
+    fun feederThatOnlyAddsWaitingIsDropped() {
+        val r50 = trip(walk(17 to 50, 11), ride("R50", 3, 18 to 1, 18 to 15), ride("RB89", 1, 18 to 51, 19 to 3))
+        val threeSix = trip(walk(17 to 50, 11), ride("3", 3, 18 to 1, 18 to 3), ride("6", 3, 18 to 22, 18 to 33), ride("RB89", 1, 18 to 51, 19 to 3))
+        val bus2 = trip(walk(18 to 7, 9), ride("2", 3, 18 to 16, 18 to 33), ride("RB89", 1, 18 to 51, 19 to 3))
+        val window = TripSearch.window(now.withHour(17).withMinute(37), arrival = false)
+        // more trains: only the best way to the train
+        assertEquals(listOf(bus2.key), TripSearch.rank(listOf(r50, threeSix, bus2), window, TripPrefs(variety = false)).map { it.key })
+        // more variants: the R50 stays as an earlier time to leave, the 3 and 6 change once more for nothing
+        assertEquals(listOf(r50.key, bus2.key), TripSearch.rank(listOf(r50, threeSix, bus2), window, TripPrefs(variety = true)).map { it.key })
+    }
+
+    @Test
+    fun feedersAreStaggeredAndCappedAtFour() {
+        val feeders = listOf(18 to 0, 18 to 1, 18 to 5, 18 to 10, 18 to 14, 18 to 18, 17 to 20).map { (h, m) ->
+            trip(walk(h to m, 8), ride("B$h$m", 3, h to m + 8, 18 to 40), ride("RB89", 1, 18 to 51, 19 to 3))
+        }
+        val ranked = TripSearch.rank(feeders, TripSearch.window(now.withHour(17).withMinute(0), arrival = false))
+        // four ways, the latest first in choice; 18:00 and 18:01 are one time to leave; 17:20 leaves too early
+        assertEquals(listOf("18:05", "18:10", "18:14", "18:18"), ranked.map { it.departureDate!!.substring(11, 16) })
+    }
+
     @Test
     fun listOpensWithAtLeastEightConnections() {
         val routes = (11..13).flatMap { h -> listOf(0, 10, 20).map { m -> trainThenBus(h to m, "100", h to m + 35, h to m + 38) } }

@@ -101,6 +101,7 @@ enum class PickTarget { From, To }
 fun TripsScreen(vm: AppViewModel, onPick: (PickTarget) -> Unit, onRoute: (Route) -> Unit, onSaved: (SavedTrip) -> Unit) {
     val state = vm.trips
     val saved by vm.store.savedTrips.collectAsState()
+    val prefs by vm.store.tripPrefs.collectAsState()
     var showTime by remember { mutableStateOf(false) }
     val expanded = vm.tripFormExpanded || (state.data == null && !state.loading)
 
@@ -216,6 +217,26 @@ fun TripsScreen(vm: AppViewModel, onPick: (PickTarget) -> Unit, onRoute: (Route)
                     MessageState(Icons.Rounded.Route, "Keine Verbindung gefunden", "Versuche eine andere Uhrzeit, einen Ort in der Nähe oder lockere in den Einstellungen Umstiegszeit und Umstiege.")
                 }
                 else -> {
+                    item(key = "variety") {
+                        // switching re-ranks the loaded connections, no new search
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween, Alignment.CenterHorizontally),
+                        ) {
+                            ToggleButton(
+                                checked = prefs.variety,
+                                onCheckedChange = { vm.store.setTripPrefs(prefs.copy(variety = true)) },
+                                shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
+                                modifier = Modifier.testTag("mode_variety"),
+                            ) { Text("Mehr Varianten") }
+                            ToggleButton(
+                                checked = !prefs.variety,
+                                onCheckedChange = { vm.store.setTripPrefs(prefs.copy(variety = false)) },
+                                shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
+                                modifier = Modifier.testTag("mode_trains"),
+                            ) { Text("Mehr Züge") }
+                        }
+                    }
                     item { PagerButton("Früher", Icons.Rounded.ExpandLess, vm.pagingEarlier) { vm.pageTrips(false) } }
                     if (vm.tripRefreshing) item(key = "refreshing") {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp)) {

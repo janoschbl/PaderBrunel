@@ -121,8 +121,10 @@ object BackendApi {
     }
 
     /** Null when this search cannot be answered here (arrival search, unknown place), so the caller falls back. */
-    suspend fun routesBetween(from: Station, to: Station, at: ZonedDateTime, arrival: Boolean): List<Route>? {
-        if (!enabled || arrival) return null
+    suspend fun routesBetween(
+        from: Station, to: Station, at: ZonedDateTime, arrival: Boolean, maxChanges: Int? = null, rules: SearchRules = SearchRules(),
+    ): List<Route>? {
+        if (!enabled) return null
         val f = place(from) ?: return null
         val t = place(to) ?: return null
         // positions let the backend find a platform id for stops that Transitous knows only by platform
@@ -131,6 +133,10 @@ object BackendApi {
             put("from", f); put("to", t); put("time", at.toEpochSecond().toString())
             if (from.isRealStop) pos(from)?.let { put("from_pos", it) }
             if (to.isRealStop) pos(to)?.let { put("to_pos", it) }
+            if (rules.minTransferMin > 0) put("transfer", rules.minTransferMin.toString())
+            maxChanges?.let { put("changes", it.toString()) }
+            if (arrival) put("arrive", "1")
+            put("variants", rules.variants.toString())
         }
         val req = Request.Builder().url(url("/v1/plan", params)).build()
         val (plan, live) = call(req) { src ->
@@ -140,7 +146,7 @@ object BackendApi {
             Pm.note("backend frames ${first.length} + ${second?.length ?: 0} chars")
             json.decodeFromString<BPlan>(first) to second?.let { runCatching { json.decodeFromString<BLive>(it) }.getOrNull() }
         }
-        return toRoutes(plan, live)
+        return toRoutes(plan, live, from.name, to.name)
     }
 
     // ---- mapping to the app's models ----
@@ -174,7 +180,8 @@ object BackendApi {
 
     private fun typeName(mode: String) = when (typeOf(mode)) { 4 -> "Straßenbahn"; 2 -> "U-Bahn"; 3 -> "Bus"; 100 -> null; else -> "Zug" }
 
-    internal fun toRoutes(plan: BPlan, live: BLive?): List<Route> {
+    /** [fromName] and [toName] replace Transitous' "START" and "END" when the search began or ended at a position. */
+    internal fun toRoutes(plan: BPlan, live: BLive?, fromName: String? = null, toName: String? = null): List<Route> {
         val gone = live?.gone?.toSet().orEmpty()
         val liveBy = live?.legs.orEmpty().associateBy { it.itin to it.leg }
         return plan.itins.mapIndexedNotNull { i, it ->
@@ -185,9 +192,11 @@ object BackendApi {
                 val stops = buildList {
                     // a cancelled leg stays in the list, marked "Fällt aus" by its first stop
                     val off = lv?.cancelled == true
-                    add(station(l.from_id, l.from_name, l.from_pos, l.dep, lv?.dep, off))
+                    val fromLabel = if (l.from_id.isEmpty() && k == 0) fromName ?: l.from_name else l.from_name
+                    val toLabel = if (l.to_id.isEmpty() && k == it.legs.lastIndex) toName ?: l.to_name else l.to_name
+                    add(station(l.from_id, fromLabel, l.from_pos, l.dep, lv?.dep, off))
                     if (!walk) l.via.forEach { v -> add(station(v.id, v.name, emptyList(), v.arr, null)) }
-                    add(station(l.to_id, l.to_name, l.to_pos, l.arr, lv?.arr, off))
+                    add(station(l.to_id, toLabel, l.to_pos, l.arr, lv?.arr, off))
                 }
                 PartialRoute(
                     clazz = if (walk) "walkway" else "vehicleRide",

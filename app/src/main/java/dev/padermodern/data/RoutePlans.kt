@@ -11,12 +11,13 @@ data class RouteQuery(
     val arrival: Boolean,
     val maxChanges: Int,
     val includeDirect: Boolean = true,
+    val rules: SearchRules = SearchRules(),
 )
 
 /** Caches planned schedules only. Live predictions belong to RouteRealtime. */
 class RoutePlans(
     private val load: suspend (RouteQuery, (List<Route>) -> Unit) -> List<Route> = { q, batch ->
-        TripSearch.fetch(q.from, q.to, q.at, q.arrival, q.maxChanges, onBatch = batch, includeDirect = q.includeDirect)
+        TripSearch.fetch(q.from, q.to, q.at, q.arrival, q.maxChanges, onBatch = batch, includeDirect = q.includeDirect, rules = q.rules)
     },
     private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000L },
     private val store: PlanStore? = null,
@@ -31,6 +32,7 @@ class RoutePlans(
         val arrival: Boolean,
         val maxChanges: Int,
         val includeDirect: Boolean,
+        val rules: SearchRules,
     )
     private data class Entry(val routes: List<Route>, val storedAt: Long)
 
@@ -100,7 +102,7 @@ class RoutePlans(
         store?.prune(now - SearchPolicy.DISK_PAST_GRACE_MILLIS, now - SearchPolicy.DISK_CACHE_MAX_AGE_MILLIS)
     }
 
-    private fun RouteQuery.base() = "${from.key}|${to.key}|${at.zone.id}|$arrival|$maxChanges|$includeDirect"
+    private fun RouteQuery.base() = "${from.key}|${to.key}|${at.zone.id}|$arrival|$maxChanges|$includeDirect|${rules.minTransferMin}|${rules.variants}"
 
     private fun lookup(key: Key): Entry? = synchronized(entries) {
         val entry = entries[key] ?: return@synchronized null
@@ -111,7 +113,7 @@ class RoutePlans(
 
     private fun RouteQuery.key() = Key(
         from, to, at.withSecond(0).withNano(0).toInstant().toEpochMilli(), at.zone.id,
-        arrival, maxChanges, includeDirect,
+        arrival, maxChanges, includeDirect, rules,
     )
 
     private fun Route.scheduleOnly() = copy(

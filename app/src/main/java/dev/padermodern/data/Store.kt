@@ -17,7 +17,17 @@ data class TripPrefs(
     val style: RouteStyle = RouteStyle.Balanced,
     val minTransferMin: Int = 3,
     val maxChanges: Int = 2,
-)
+    /** True: up to four ways to reach each train, staggered by when to leave. False: more trains, the best way each. */
+    val variety: Boolean = true,
+) {
+    /** The backend always sends the variants, so switching [variety] only re-ranks what is already loaded. */
+    val rules: SearchRules get() = SearchRules(minTransferMin)
+}
+
+/** What the router needs from the settings. [variants] counts connections per main train. */
+data class SearchRules(val minTransferMin: Int = 0, val variants: Int = VARIANTS) {
+    companion object { const val VARIANTS = 4 }
+}
 
 class Store(context: Context) {
     private val prefs = context.getSharedPreferences("padermodern", Context.MODE_PRIVATE)
@@ -50,6 +60,7 @@ class Store(context: Context) {
             style = runCatching { RouteStyle.valueOf(prefs.getString("routeStyle", null) ?: "") }.getOrDefault(RouteStyle.Balanced),
             minTransferMin = prefs.getInt("minTransfer", 3),
             maxChanges = prefs.getInt("maxChanges", 2),
+            variety = prefs.getBoolean("variety", true),
         ),
     )
     val tripPrefs: StateFlow<TripPrefs> = _tripPrefs
@@ -68,7 +79,8 @@ class Store(context: Context) {
 
     fun setTripPrefs(p: TripPrefs) {
         _tripPrefs.value = p
-        prefs.edit().putString("routeStyle", p.style.name).putInt("minTransfer", p.minTransferMin).putInt("maxChanges", p.maxChanges).apply()
+        prefs.edit().putString("routeStyle", p.style.name).putInt("minTransfer", p.minTransferMin).putInt("maxChanges", p.maxChanges)
+            .putBoolean("variety", p.variety).apply()
     }
 
     fun setThemeMode(m: ThemeMode) {

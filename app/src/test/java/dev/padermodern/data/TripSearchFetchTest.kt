@@ -36,6 +36,28 @@ class TripSearchFetchTest {
         assertEquals(1, pairs)
     }
 
+    @Test fun wholeTripSearchReplacesStopPairs() = runTest {
+        var pairs = 0
+        val address = Station(type = "address", name = "Marsenweg", latitude = 51.72777, longitude = 8.76695)
+        val src = object : Source(listOf(Endpoint(station("A"), 5), Endpoint(station("C"), 7), Endpoint(station("B"), 0))) {
+            override suspend fun routesBetween(from: Station, to: Station, at: ZonedDateTime, arrival: Boolean, maxChanges: Int): List<Route> { pairs++; return emptyList() }
+            override suspend fun wholeTrip(from: Station, to: Station, at: ZonedDateTime, arrival: Boolean, maxChanges: Int) = listOf(route("2"))
+        }
+        val result = TripSearch.fetch(address, station("B"), time, false, 1, source = src)
+        assertEquals(0, pairs)
+        assertEquals("2", result.single().partialRoutes.single().shortName)
+    }
+
+    @Test fun stopPairsAreTheFallbackWhenWholeTripFails() = runTest {
+        var pairs = 0
+        val src = object : Source(listOf(Endpoint(station("A"), 0), Endpoint(station("B"), 0))) {
+            override suspend fun routesBetween(from: Station, to: Station, at: ZonedDateTime, arrival: Boolean, maxChanges: Int): List<Route> { pairs++; return listOf(route()) }
+            override suspend fun wholeTrip(from: Station, to: Station, at: ZonedDateTime, arrival: Boolean, maxChanges: Int): List<Route> = error("backend down")
+        }
+        TripSearch.fetch(station("A"), station("B"), time, false, 1, includeDirect = false, source = src)
+        assertEquals(1, pairs)
+    }
+
     @Test fun directDiscoveryCanReturnCandidate() = runTest {
         val src = object : Source(listOf(Endpoint(station("A"), 0), Endpoint(station("B"), 0))) {
             override suspend fun departures(stationId: String, at: ZonedDateTime, fresh: Boolean): List<Departure> = listOf(

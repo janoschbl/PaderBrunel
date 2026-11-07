@@ -35,6 +35,11 @@ interface TripSearchSource {
     suspend fun endpoints(place: Station, limit: Int): List<Endpoint>
     suspend fun departures(stationId: String, at: ZonedDateTime, fresh: Boolean): List<Departure>
     suspend fun routesBetween(from: Station, to: Station, at: ZonedDateTime, arrival: Boolean, maxChanges: Int): List<Route>
+    /**
+     * One search from the real start to the real destination, positions included, with the walks to and from the
+     * stops planned by the router. Null or empty when the source cannot do that; the search then pairs nearby stops.
+     */
+    suspend fun wholeTrip(from: Station, to: Station, at: ZonedDateTime, arrival: Boolean, maxChanges: Int): List<Route>? = null
 }
 
 class PartialTripSearchException(message: String, cause: Throwable) : Exception(message, cause)
@@ -49,6 +54,12 @@ object TripSearch {
     /** The list opens with at least this many connections, so a trip with few variants still fills the screen. */
     const val MIN_ROWS = 8
     private const val VARIANT_SLACK_MIN = 45.0
+    /** Trains shown in the "more trains" mode besides the requested limit, one connection each. */
+    private const val TRAINS_EXTRA = 5
+    /** Ways to a train leaving this much earlier than its best only add waiting. */
+    private const val FEEDER_SPREAD_MIN = 20L
+    /** Two ways leaving within this many minutes of each other are one choice, unless they ride other lines. */
+    private const val SAME_LEAVE_MIN = 3L
 
     fun walkMinutes(meters: Int): Int = ceil(meters * WALK_DETOUR / WALK_M_PER_MIN).toInt().coerceAtLeast(1)
 
@@ -90,14 +101,28 @@ object TripSearch {
         maxChanges: Int,
         onBatch: (List<Route>) -> Unit = {},
         includeDirect: Boolean = true,
+        rules: SearchRules = SearchRules(),
         source: TripSearchSource = object : TripSearchSource {
             override suspend fun endpoints(place: Station, limit: Int) = this@TripSearch.endpoints(place, limit)
             override suspend fun departures(stationId: String, at: ZonedDateTime, fresh: Boolean) = SrsApi.departures(stationId, at, fresh)
-            override suspend fun routesBetween(from: Station, to: Station, at: ZonedDateTime, arrival: Boolean, maxChanges: Int) = SrsApi.routesBetween(from, to, at, arrival, maxChanges)
+            override suspend fun routesBetween(from: Station, to: Station, at: ZonedDateTime, arrival: Boolean, maxChanges: Int) = SrsApi.routesBetween(from, to, at, arrival, maxChanges, rules)
+            override suspend fun wholeTrip(from: Station, to: Station, at: ZonedDateTime, arrival: Boolean, maxChanges: Int) =
+                BackendApi.routesBetween(from, to, at, arrival, maxChanges, rules)
         },
         computationDispatcher: CoroutineDispatcher = Dispatchers.Default,
     ): List<Route> =
         coroutineScope {
+            // Pairing up to four nearby stops and gluing our own walks on missed every stop outside the four and
+            // planned each pair without the traveller's minimum change. The router does the walks itself.
+            val whole = try {
+                source.wholeTrip(from, to, at, arrival, maxChanges)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Pm.note("whole trip failed: ${e.message}")
+                null
+            }
+            if (!whole.isNullOrEmpty()) return@coroutineScope whole.map { it.slim() }.distinctRoutes().also(onBatch)
             val (os, ds) = listOf(
                 async { source.endpoints(from, if (to.isRealStop) 7 else 3) },
                 async { source.endpoints(to, if (from.isRealStop) 7 else 3) },
@@ -230,6 +255,34 @@ object TripSearch {
         val trainKey = route.trainKey
         val cost: Double = Duration.between(dep, arr).toMinutes() + walk * (WALK_WEIGHT - 1) +
             changes * when (prefs.style) { RouteStyle.Fastest -> 0; RouteStyle.Balanced -> 5; RouteStyle.Relaxed -> 15 }
+
+        /**
+         * True when [other] only adds waiting: this one leaves later or changes less, and arrives no later. Extra
+         * walking here counts only beyond the minutes it lets the traveller leave later. Onward buses after the same
+         * train keep their place (same departure, later arrival): they are the spare choice when the first is missed.
+         */
+        fun dominates(other: Scored): Boolean {
+            if (dep < other.dep || arr > other.arr || changes > other.changes) return false
+            if (walk > other.walk + Duration.between(other.dep, dep).toMinutes()) return false
+            return dep > other.dep || changes < other.changes
+        }
+
+        /**
+         * True when this one leaves at most a few minutes before [other] but arrives clearly earlier, with no more
+         * changes and not much more walking: "one minute earlier, there a quarter hour sooner, one change less".
+         */
+        fun clearlyFaster(other: Scored): Boolean {
+            val gain = Duration.between(arr, other.arr).toMinutes()
+            if (gain < 3 || changes > other.changes || walk > other.walk + 10) return false
+            return Duration.between(dep, other.dep).toMinutes() <= minOf(5L, gain / 3)
+        }
+
+        /** A change more without leaving later or arriving earlier than [other]. */
+        fun changesForNothing(other: Scored): Boolean =
+            changes > other.changes && !other.dep.isBefore(dep.minusMinutes(2)) && !other.arr.isAfter(arr)
+
+        fun beatenBy(other: Scored): Boolean =
+            other !== this && (other.dominates(this) || other.clearlyFaster(this) || changesForNothing(other))
     }
 
     /**
@@ -271,12 +324,20 @@ object TripSearch {
                 val t = if (window.byArrival) s.arr else s.dep
                 t >= window.from && t <= window.to
             }
-        val groups = scored.groupBy { it.trainKey }.values.map { all ->
-            val quickest = all.minOf { it.cost }
-            all.groupBy { it.chain }.values.map { line -> line.minBy { it.cost } }
-                .filter { it.cost <= quickest + VARIANT_SLACK_MIN }
-                .sortedBy { it.cost }
-                .take(MAX_VARIANTS)
+            .let { all ->
+                // a night spent waiting is no connection: at most twice the quickest trip, and an hour more anyway
+                val quickest = all.minOfOrNull { Duration.between(it.dep, it.arr).toMinutes() } ?: 0
+                all.filter { Duration.between(it.dep, it.arr).toMinutes() <= maxOf(quickest * 2, quickest + 60) }
+            }
+        // "walk, wait 18 min, one stop by bus, wait 17 min" loses to the bus that leaves later and arrives as early.
+        // A train stays only when its best connection is not beaten that way by another train's.
+        val front = scored.filterNotTo(HashSet()) { s -> scored.any { o -> s.beatenBy(o) } }
+        val groups = scored.groupBy { it.trainKey }.values.mapNotNull { all ->
+            val primary = all.filter { it in front }.minByOrNull { it.cost } ?: return@mapNotNull null
+            if (!prefs.variety) return@mapNotNull listOf(primary)
+            // within a train, earlier feeders and later onward buses are the variety; against other trains they
+            // must hold their own
+            variants(primary, all.filter { v -> v === primary || scored.none { o -> o.trainKey != v.trainKey && v.beatenBy(o) } })
         }
         fun at(g: List<Scored>) = if (window.byArrival) g.minOf { it.arr } else g.minOf { it.dep }
         // Direct rides have no variants, so a handful of them is one choice list; connections with a change show
@@ -293,8 +354,35 @@ object TripSearch {
         }
         val (directs, changes) = groups.partition { g -> g.all { it.direct } }
         val directPicked = pick(directs, DIRECT_EXTRA)
-        val kept = directPicked + pick(changes, CHANGE_EXTRA, (MIN_ROWS - directPicked.sumOf { it.size }).coerceAtLeast(0))
+        val kept = directPicked + pick(changes, if (prefs.variety) CHANGE_EXTRA else TRAINS_EXTRA, (MIN_ROWS - directPicked.sumOf { it.size }).coerceAtLeast(0))
         return kept.flatten().sortedWith(compareBy({ it.dep }, { it.arr })).map { it.route }
+    }
+
+    /**
+     * Up to [MAX_VARIANTS] ways to take the train of [primary]: other feeders first, each leaving at its own time so
+     * the traveller can pick when to set off, then other onward buses. A way that changes more without leaving later
+     * is never offered, nor one that leaves more than [FEEDER_SPREAD_MIN] before the best.
+     */
+    private fun variants(primary: Scored, all: List<Scored>): List<Scored> {
+        fun minutes(a: ZonedDateTime, b: ZonedDateTime) = kotlin.math.abs(Duration.between(a, b).toMinutes())
+        val useful = all.filter { v ->
+            v === primary || (
+                v.cost <= primary.cost + VARIANT_SLACK_MIN &&
+                    !v.dep.isBefore(primary.dep.minusMinutes(FEEDER_SPREAD_MIN)) &&
+                    all.none { w -> v.changesForNothing(w) }
+                )
+        }.sortedWith(compareByDescending<Scored> { it.dep }.thenBy { it.cost })
+        val picked = arrayListOf(primary)
+        // first pass: a new time to leave; second pass: same time, a different onward bus
+        for (newLeave in listOf(true, false)) for (v in useful) {
+            if (picked.size >= MAX_VARIANTS) break
+            if (v in picked) continue
+            val clash = picked.any { p ->
+                minutes(p.dep, v.dep) < SAME_LEAVE_MIN && (newLeave || p.chain == v.chain)
+            }
+            if (!clash) picked += v
+        }
+        return picked
     }
 
     fun window(at: ZonedDateTime, arrival: Boolean, spanMinutes: Long = 180): SearchWindow =

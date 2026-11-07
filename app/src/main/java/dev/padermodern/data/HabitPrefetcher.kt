@@ -42,7 +42,7 @@ class HabitPrefetcher(
             ledger.record(now.toInstant().toEpochMilli())
             Pm.note("prefetch ${h.from.name} -> ${h.to.name} (seen ${h.count}x)")
             routePasses(prefs().maxChanges).forEach { cap ->
-                runCatching { plans.fetch(RouteQuery(h.from, h.to, now, h.arrival, cap)) }
+                runCatching { plans.fetch(RouteQuery(h.from, h.to, now, h.arrival, cap, rules = prefs().rules)) }
                     .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
             }
         }

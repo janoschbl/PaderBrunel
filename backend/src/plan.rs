@@ -112,6 +112,61 @@ fn anchor_walks(legs: &mut [Leg]) {
     }
 }
 
+/// A short ride is a change for nothing when the stop of the next ride is in walking reach in time: "walk to the stop,
+/// one stop by bus, wait 17 minutes" becomes "walk to the next ride's stop", often leaving later. Walks are estimated
+/// as the app does (straight line, 25 % detour, 80 m a minute). A walk up to `HOP_EASY_WALK` always qualifies; a longer
+/// one only when it is no longer than the walking and riding it replaces, and never beyond `HOP_MAX_WALK`.
+const HOP_MAX_RIDE: i64 = 5 * 60;
+const HOP_EASY_WALK: i64 = 15 * 60;
+const HOP_MAX_WALK: i64 = 30 * 60;
+
+fn meters(a: [f64; 2], b: [f64; 2]) -> f64 {
+    let (la1, la2) = (a[0].to_radians(), b[0].to_radians());
+    let h = ((la2 - la1) / 2.0).sin().powi(2) + la1.cos() * la2.cos() * ((b[1] - a[1]).to_radians() / 2.0).sin().powi(2);
+    6_371_000.0 * 2.0 * h.sqrt().clamp(0.0, 1.0).asin()
+}
+
+fn walk_secs(a: [f64; 2], b: [f64; 2]) -> i64 { ((meters(a, b) * 1.25 / 80.0).ceil() as i64).max(1) * 60 }
+
+/// Replaces hops in `it` by walks. `transfer` is the minimum change time in seconds. Returns whether it changed.
+pub fn drop_hops(it: &mut Itin, transfer: i64) -> bool {
+    let mut changed = false;
+    'again: loop {
+        let rides: Vec<usize> = it.legs.iter().enumerate().filter(|(_, l)| l.transit()).map(|(k, _)| k).collect();
+        for w in 0..rides.len().saturating_sub(1) {
+            let (i, j) = (rides[w], rides[w + 1]);
+            let hop = &it.legs[i];
+            if hop.arr - hop.dep > HOP_MAX_RIDE || hop.via.len() > 1 { continue; }
+            let prev = if w > 0 { Some(rides[w - 1]) } else { None };
+            let (start, from_name, from_id, from_pos) = match prev {
+                Some(p) => { let l = &it.legs[p]; (Some(l.arr), l.to_name.clone(), l.to_id.clone(), l.to_pos) }
+                None => { let l = &it.legs[0]; (None, l.from_name.clone(), l.from_id.clone(), l.from_pos) }
+            };
+            let next = &it.legs[j];
+            if from_pos == [0.0, 0.0] || next.from_pos == [0.0, 0.0] { continue; }
+            let walk = walk_secs(from_pos, next.from_pos);
+            let first = prev.map(|p| p + 1).unwrap_or(0);
+            let moving: i64 = it.legs[first..j].iter().map(|l| l.arr - l.dep).sum();
+            if walk > HOP_MAX_WALK || (walk > HOP_EASY_WALK && walk > moving + 120) { continue; }
+            let (dep, arr) = match start {
+                Some(t) if t + walk.max(transfer) <= next.dep => (t, t + walk),
+                Some(_) => continue,
+                None => (next.dep - walk, next.dep),
+            };
+            let leg = Leg {
+                mode: "WALK".into(), line: String::new(), to: String::new(), from_name, to_name: next.from_name.clone(), from_id,
+                to_id: next.from_id.clone(), from_pos, to_pos: next.from_pos, dep, arr, via: vec![],
+            };
+            it.legs.splice(first..j, [leg]);
+            it.dep = it.legs[0].dep;
+            it.changes = it.legs.iter().filter(|l| l.transit()).count().saturating_sub(1) as u32;
+            changed = true;
+            continue 'again;
+        }
+        return changed;
+    }
+}
+
 /// A forecast from a board. `t` is the expected departure or arrival in unix seconds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Est { pub t: i64, pub cancelled: bool, pub src: &'static str }
@@ -309,6 +364,31 @@ mod tests {
         anchor_walks(&mut legs);
         assert_eq!((legs[0].dep, legs[0].arr), (520, 1120));
         assert_eq!((legs[2].dep, legs[2].arr), (2020, 2140));
+    }
+
+    #[test] fn hop_becomes_a_walk() {
+        let walk = |dep, arr, from: [f64; 2], to: [f64; 2]| Leg { mode: "WALK".into(), from_pos: from, to_pos: to, ..ride("", "", "", dep, arr) };
+        let at = |lat, lon, l: Leg, end: bool| if end { Leg { to_pos: [lat, lon], ..l } } else { Leg { from_pos: [lat, lon], ..l } };
+        let (home, cherusker, tor, hbf) = ([51.72777, 8.76695], [51.72714, 8.76187], [51.72300, 8.75800], [51.71298, 8.74050]);
+        // Marsenweg: walk to Cheruskerstraße, bus 3 one stop to Detmolder Tor at 18:03, wait, bus 6 at 18:22
+        let three = at(tor[0], tor[1], at(cherusker[0], cherusker[1], ride("3", "c", "d", 64_860, 64_980), false), true);
+        let six = at(hbf[0], hbf[1], at(tor[0], tor[1], ride("6", "d", "h", 66_120, 66_780), false), true);
+        let mut it = Itin { dep: 64_200, arr: 66_780, changes: 1, legs: vec![walk(64_200, 64_860, home, cherusker), three, six] };
+        assert!(drop_hops(&mut it, 300));
+        assert_eq!(it.changes, 0);
+        assert_eq!(it.legs.len(), 2);
+        assert_eq!(it.legs[0].mode, "WALK");
+        // the walk to Detmolder Tor ends when the 6 leaves, so the traveller sets off later than before
+        assert_eq!(it.legs[0].arr, 66_120);
+        assert!(it.dep > 64_200);
+    }
+
+    #[test] fn ride_that_saves_the_change_stays() {
+        let a = Leg { from_pos: [51.72, 8.76], to_pos: [51.70, 8.70], ..ride("3", "a", "b", 1000, 1200) };
+        let b = Leg { from_pos: [51.70, 8.70], to_pos: [51.6, 8.6], ..ride("6", "b", "c", 1500, 2000) };
+        let mut it = Itin { dep: 1000, arr: 2000, changes: 1, legs: vec![a, b] };
+        // 4.5 km is no walk
+        assert!(!drop_hops(&mut it, 180));
     }
 
     #[test] fn far_legs_need_no_board() {

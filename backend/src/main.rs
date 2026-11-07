@@ -21,6 +21,8 @@ pub struct AppState {
     stops: Cache<String, Arc<Vec<merge::Stop>>>,
     deps: Cache<String, Arc<merge::Board>>,
     plans: Cache<String, Arc<plan::Plan>>,
+    /// router answers behind the variants of a search
+    parts: Cache<String, Arc<plan::Plan>>,
     /// stop id -> platform id that Transitous accepts
     resolved: Cache<String, String>,
     lives: Cache<String, Arc<plan::Live>>,
@@ -90,9 +92,20 @@ fn bad_gateway(e: impl std::fmt::Display) -> (StatusCode, String) {
 }
 
 #[derive(Deserialize)]
-struct PlanQuery { from: String, to: String, from_pos: Option<String>, to_pos: Option<String>, time: Option<i64>, n: Option<u32> }
+struct PlanQuery {
+    from: String, to: String, from_pos: Option<String>, to_pos: Option<String>, time: Option<i64>, n: Option<u32>,
+    /// shortest change in minutes and the most changes the traveller accepts
+    transfer: Option<u32>, changes: Option<u32>,
+    /// `1`: `time` is the latest arrival
+    arrive: Option<u8>,
+    /// connections per main train: other buses to it and from it (1 = the router's best only, default 4)
+    variants: Option<u32>,
+}
 
-struct Req { from: String, to: String, from_pos: Option<String>, to_pos: Option<String>, at: i64, n: u32 }
+struct Req {
+    from: String, to: String, from_pos: Option<String>, to_pos: Option<String>, at: i64, n: u32, rules: upstream::Rules,
+    arrive: bool, variants: usize,
+}
 
 fn tid_place(p: &str) -> String { if upstream::coords(p).is_some() { p.to_string() } else { tid(p) } }
 
@@ -100,57 +113,118 @@ impl PlanQuery {
     /// The time is floored to 5 minutes so that nearby requests share one cache entry.
     fn req(self) -> Req {
         let now = chrono::Utc::now().timestamp();
-        Req { from: tid_place(&self.from), to: tid_place(&self.to), from_pos: self.from_pos, to_pos: self.to_pos, at: self.time.unwrap_or(now) / 300 * 300, n: self.n.unwrap_or(12).clamp(1, 20) }
+        Req { from: tid_place(&self.from), to: tid_place(&self.to), from_pos: self.from_pos, to_pos: self.to_pos, at: self.time.unwrap_or(now) / 300 * 300, n: self.n.unwrap_or(12).clamp(1, 20),
+              rules: upstream::Rules { transfer_min: self.transfer.unwrap_or(0).min(60), max_changes: self.changes.map(|c| c.min(8)) },
+              arrive: self.arrive == Some(1), variants: self.variants.unwrap_or(4).clamp(1, 6) as usize }
     }
 }
 
 impl Req {
-    fn key(&self) -> String { format!("{}|{}|{}|{}", self.from, self.to, self.at, self.n) }
+    fn key(&self) -> String {
+        format!("{}|{}|{}|{}|{}|{:?}|{}|{}", self.from, self.to, self.at, self.n, self.rules.transfer_min, self.rules.max_changes, self.arrive, self.variants)
+    }
 }
 
-/// The search starts this long before the requested time, so the app also gets the last connection before it.
+/// A departure search starts this long before the requested time, so the app also gets the last connection before it.
 const LOOKBACK: i64 = 25 * 60;
+/// An arrival search also returns connections arriving this long after the requested time.
+const LOOKAHEAD: i64 = 30 * 60;
+/// Feeders leaving this much earlier than the router's own choice only add waiting.
+const FEEDER_SPREAD: i64 = 30 * 60;
 
-/// Transitous returns one itinerary per train: the fastest onward bus only. People want a choice of buses, so for
-/// each itinerary with a change everything after the second-to-last ride is replaced by the other options leaving
-/// its arrival stop soon after.
-async fn expand(s: &AppState, to: &str, mut p: plan::Plan, anchor: i64) -> plan::Plan {
+/// Bus, tram, and underground rides are never the main ride when a train is part of the connection.
+fn is_train(mode: &str) -> bool {
+    !matches!(mode, "BUS" | "COACH" | "WALK" | "BIKE" | "CAR") && !mode.contains("TRAM") && !mode.contains("SUBWAY") && !mode.contains("METRO")
+}
+
+/// The ride a connection is built around: the longest train ride, else the longest ride. Same rule as the app.
+fn trunk(legs: &[plan::Leg]) -> Option<usize> {
+    let rides = || legs.iter().enumerate().filter(|(_, l)| l.transit());
+    let longest = |it: &mut dyn Iterator<Item = (usize, &plan::Leg)>| it.max_by_key(|(_, l)| l.arr - l.dep).map(|(k, _)| k);
+    longest(&mut rides().filter(|(_, l)| is_train(&l.mode))).or_else(|| longest(&mut rides()))
+}
+
+fn chain(legs: &[plan::Leg]) -> String {
+    legs.iter().filter(|l| l.transit()).map(|l| format!("{}@{}", l.line, l.dep)).collect::<Vec<_>>().join(">")
+}
+
+/// The router returns one connection per main train, with the quickest bus to it and from it. People want to choose
+/// when to leave and which bus to take, so the main trains near the requested time get the other buses that reach
+/// them (feeders) and, for departures, the other buses leaving their arrival stop (onward). A search costs at most
+/// six extra requests to Transitous, a shared community service, all in parallel and cached.
+async fn expand(s: &AppState, from: &str, to: &str, mut p: plan::Plan, r: &Req) -> plan::Plan {
     use std::collections::HashSet;
-    let mut jobs = Vec::new();
-    // Only the connection before the requested time and the two after it get variants. Transitous is a shared
-    // community service, so a search costs at most three extra requests.
-    let first_after = p.itins.iter().position(|i| i.dep >= anchor).unwrap_or(p.itins.len());
-    let wanted = first_after.saturating_sub(1)..(first_after + 2).min(p.itins.len());
-    for (i, it) in p.itins.iter().enumerate().filter(|(i, _)| wanted.contains(i)) {
-        let rides: Vec<usize> = it.legs.iter().enumerate().filter(|(_, l)| l.transit()).map(|(k, _)| k).collect();
-        if rides.len() < 2 { continue; }
-        // the onward search starts where the previous ride arrives, so its own transfer walk replaces ours and the
-        // joined connection never has two walks in a row
-        let prev = rides[rides.len() - 2];
-        jobs.push((i, prev + 1, it.legs[prev].arr + 180, it.legs[prev].to_id.clone()));
+    if r.variants <= 1 || p.itins.is_empty() { return p; }
+    let transfer = (r.rules.transfer_min as i64 * 60).max(180);
+    // three different main trains with a ride before them: that is where the traveller gets to choose when to leave
+    let main = |i: usize| {
+        let legs = &p.itins[i].legs;
+        trunk(legs).filter(|&t| legs.iter().position(|l| l.transit()) != Some(t)).map(|t| format!("{}@{}", legs[t].line, legs[t].dep))
+    };
+    let pick = |order: Vec<usize>, n: usize| {
+        let mut seen = HashSet::new();
+        order.into_iter().filter(|&i| main(i).is_some_and(|k| seen.insert(k))).take(n).collect::<Vec<usize>>()
+    };
+    let wanted: Vec<usize> = if r.arrive {
+        // the two latest arriving in time and the first one after
+        let (mut before, mut after): (Vec<usize>, Vec<usize>) = (0..p.itins.len()).partition(|&i| p.itins[i].arr <= r.at);
+        before.sort_by_key(|&i| std::cmp::Reverse((p.itins[i].arr, p.itins[i].dep)));
+        after.sort_by_key(|&i| (p.itins[i].arr, std::cmp::Reverse(p.itins[i].dep)));
+        pick(before, 2).into_iter().chain(pick(after, 1)).collect()
+    } else {
+        let mut later: Vec<usize> = (0..p.itins.len()).filter(|&i| p.itins[i].dep >= r.at).collect();
+        later.sort_by_key(|&i| (p.itins[i].dep, p.itins[i].arr));
+        pick(later, 3)
+    };
+    // (itinerary, trunk leg, is feeder, query from, query to, time)
+    let mut jobs: Vec<(usize, usize, bool, String, String, i64)> = Vec::new();
+    for &i in &wanted {
+        let legs = &p.itins[i].legs;
+        let Some(t) = trunk(legs) else { continue };
+        let first_ride = legs.iter().position(|l| l.transit());
+        let last_ride = legs.iter().rposition(|l| l.transit());
+        if first_ride != Some(t) && !legs[t].from_id.is_empty() {
+            jobs.push((i, t, true, from.to_string(), legs[t].from_id.clone(), legs[t].dep));
+        }
+        if !r.arrive && last_ride != Some(t) && !legs[t].to_id.is_empty() {
+            jobs.push((i, t, false, legs[t].to_id.clone(), to.to_string(), legs[t].arr + transfer));
+        }
     }
+    let rules = r.rules;
     // variants are optional: when Transitous is slow the plain plan goes out instead of making the search wait
-    let results = tokio::time::timeout(Duration::from_millis(2500), futures_util::future::join_all(jobs.iter().map(|(_, _, earliest, from)| {
-        let (http, to, from, earliest) = (s.http.clone(), to.to_string(), from.clone(), *earliest);
-        async move { if from.is_empty() { None } else { upstream::plan_static(&http, &from, &to, earliest, 6).await.ok() } }
+    let wait = if upstream::record_dir().is_some() { Duration::from_secs(3600) } else { Duration::from_millis(2500) };
+    let results = tokio::time::timeout(wait, futures_util::future::join_all(jobs.iter().map(|(_, _, feeder, a, b, at)| {
+        cached_plan(s, a.clone(), b.clone(), *at, *feeder, 8, rules)
     }))).await.unwrap_or_else(|_| jobs.iter().map(|_| None).collect());
-    let chain = |legs: &[plan::Leg]| legs.iter().filter(|l| l.transit()).map(|l| format!("{}@{}", l.line, l.dep)).collect::<Vec<_>>().join(">");
     let mut seen: HashSet<String> = p.itins.iter().map(|i| chain(&i.legs)).collect();
     let mut extra = Vec::new();
-    for ((i, k, earliest, _), onward) in jobs.iter().zip(results) {
-        let Some(on) = onward else { continue };
+    for ((i, t, feeder, ..), found) in jobs.iter().zip(results) {
+        let Some(found) = found else { continue };
         let base = &p.itins[*i];
-        let mut taken = 0;
-        for o in &on.itins {
-            let rides = o.legs.iter().filter(|l| l.transit()).count();
-            let Some(first) = o.legs.iter().find(|l| l.transit()) else { continue };
-            if rides > 2 || first.dep < *earliest || o.arr > base.arr + 25 * 60 { continue }
-            let legs: Vec<plan::Leg> = base.legs[..*k].iter().cloned().chain(o.legs.iter().cloned()).collect();
+        let main = &base.legs[*t];
+        let mut taken = 1;
+        // feeders: the latest first, as the router lists arrive-by results
+        let mut options: Vec<&plan::Itin> = found.itins.iter().collect();
+        if *feeder { options.sort_by_key(|o| std::cmp::Reverse(o.dep)); }
+        for o in options {
+            let rides: Vec<&plan::Leg> = o.legs.iter().filter(|l| l.transit()).collect();
+            let legs: Vec<plan::Leg> = if *feeder {
+                // the change to the main train keeps the traveller's minimum, measured from the last ride's arrival
+                let ready = rides.last().map(|l| l.arr + transfer).unwrap_or(o.arr).max(o.arr);
+                if ready > main.dep || o.dep < base.dep - FEEDER_SPREAD || rides.len() > 2 { continue }
+                o.legs.iter().cloned().chain(base.legs[*t..].iter().cloned()).collect()
+            } else {
+                let Some(first) = rides.first() else { continue };
+                if rides.len() > 2 || first.dep < main.arr + transfer || o.arr > base.arr + 25 * 60 { continue }
+                base.legs[..=*t].iter().cloned().chain(o.legs.iter().cloned()).collect()
+            };
             if !seen.insert(chain(&legs)) { continue }
             let changes = legs.iter().filter(|l| l.transit()).count().saturating_sub(1) as u32;
-            extra.push(plan::Itin { dep: base.dep, arr: o.arr, changes, legs });
+            if rules.max_changes.is_some_and(|m| changes > m) { continue }
+            let (dep, arr) = (legs.first().map(|l| l.dep).unwrap_or(base.dep), legs.last().map(|l| l.arr).unwrap_or(base.arr));
+            extra.push(plan::Itin { dep, arr, changes, legs });
             taken += 1;
-            if taken >= 4 { break }
+            if taken >= r.variants { break }
         }
     }
     p.itins.extend(extra);
@@ -158,11 +232,20 @@ async fn expand(s: &AppState, to: &str, mut p: plan::Plan, anchor: i64) -> plan:
     p
 }
 
+/// A plain router answer, shared between searches that ask for the same feeder or onward buses.
+async fn cached_plan(s: &AppState, from: String, to: String, at: i64, arrive: bool, n: u32, rules: upstream::Rules) -> Option<Arc<plan::Plan>> {
+    let key = format!("{from}|{to}|{at}|{arrive}|{n}|{}|{:?}", rules.transfer_min, rules.max_changes);
+    s.parts.try_get_with(key, async {
+        upstream::plan_static(&s.http, &from, &to, at, arrive, n, rules).await.map(Arc::new)
+    }).await.ok()
+}
+
 async fn plan_static(s: &AppState, r: &Req) -> Result<Arc<plan::Plan>, (StatusCode, String)> {
     s.plans.try_get_with(r.key(), async {
         let f = s.resolved.get(&r.from).await.unwrap_or_else(|| r.from.clone());
         let t = s.resolved.get(&r.to).await.unwrap_or_else(|| r.to.clone());
-        let (base, to_used) = match upstream::plan_static(&s.http, &f, &t, r.at - LOOKBACK, r.n).await {
+        let at = if r.arrive { r.at + LOOKAHEAD } else { r.at - LOOKBACK };
+        let (base, from_used, to_used) = match upstream::plan_static(&s.http, &f, &t, at, r.arrive, r.n, r.rules).await {
             Err(e) if e.contains("404") => {
                 // unknown stop id: look for a platform of the same stop at the position the app sent
                 let mut changed = false;
@@ -177,11 +260,19 @@ async fn plan_static(s: &AppState, r: &Req) -> Result<Arc<plan::Plan>, (StatusCo
                     }
                 }
                 if !changed { return Err(e); }
-                (upstream::plan_static(&s.http, &out[0], &out[1], r.at - LOOKBACK, r.n).await?, out[1].clone())
+                let [f, t] = out;
+                (upstream::plan_static(&s.http, &f, &t, at, r.arrive, r.n, r.rules).await?, f, t)
             }
-            other => (other?, t),
+            other => (other?, f, t),
         };
-        Ok::<_, String>(Arc::new(expand(s, &to_used, base, r.at).await))
+        let mut p = expand(s, &from_used, &to_used, base, r).await;
+        let transfer = (r.rules.transfer_min as i64 * 60).max(120);
+        let mut seen = std::collections::HashSet::new();
+        for it in &mut p.itins { plan::drop_hops(it, transfer); }
+        // a dropped hop can turn one connection into a copy of another
+        p.itins.retain(|it| seen.insert((chain(&it.legs), it.dep, it.arr)));
+        p.itins.sort_by_key(|i| (i.dep, i.arr));
+        Ok::<_, String>(Arc::new(p))
     }).await.map_err(|e| bad_gateway(e))
 }
 
@@ -276,6 +367,7 @@ async fn main() {
         deps: Cache::builder().max_capacity(20_000).time_to_live(Duration::from_secs(15)).build(),
         resolved: Cache::builder().max_capacity(50_000).time_to_live(Duration::from_secs(86_400)).build(),
         plans: Cache::builder().max_capacity(20_000).time_to_live(Duration::from_secs(600)).build(),
+        parts: Cache::builder().max_capacity(20_000).time_to_live(Duration::from_secs(600)).build(),
         lives: Cache::builder().max_capacity(20_000).time_to_live(Duration::from_secs(20)).build(),
         boards: Cache::builder().max_capacity(20_000).time_to_live(Duration::from_secs(20)).build(),
         watch: Arc::new(watch::Watch::default()),

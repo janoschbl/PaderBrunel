@@ -189,6 +189,14 @@ fun ProfileScreen(vm: AppViewModel, onInfo: () -> Unit, onTrip: (String) -> Unit
                 item { ProfileHint("Minuten zwischen Ankunft und Weiterfahrt. Knappere Verbindungen werden nicht angezeigt.") }
                 item {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Text("Ergebnisliste", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(6.dp))
+                    }
+                    Segmented(listOf(true, false), prefs.variety, { if (it) "Mehr Varianten" else "Mehr Züge" }, { store.setTripPrefs(prefs.copy(variety = it)) }, { "variety_$it" })
+                }
+                item { ProfileHint(if (prefs.variety) "Bis zu vier Wege zu jedem Zug, zeitversetzt, damit du wählen kannst, wann du losgehst." else "Mehr Züge, jeweils nur der beste Weg dorthin.") }
+                item {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                         Text("Maximale Umstiege", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(6.dp))
                     }

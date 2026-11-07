@@ -191,7 +191,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var submittedAt: ZonedDateTime? = null
     private var requestedMaxChanges = -1
     private val preparation = TripPreparation(viewModelScope, loadRoutes = { f, t, at, byArrival, cap ->
-        routePlans.fetch(RouteQuery(f, t, at, byArrival, cap)); Unit
+        routePlans.fetch(RouteQuery(f, t, at, byArrival, cap, rules = store.tripPrefs.value.rules)); Unit
     })
     val tripPreparation = preparation.state
 
@@ -255,7 +255,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun fetch(f: Station, t: Station, at: ZonedDateTime, byArrival: Boolean, maxChanges: Int, generation: Int, includeDirect: Boolean) {
-        routePlans.fetch(RouteQuery(f, t, at, byArrival, maxChanges, includeDirect), onBatch = {
+        routePlans.fetch(RouteQuery(f, t, at, byArrival, maxChanges, includeDirect, store.tripPrefs.value.rules), onBatch = {
             if (generation == searchGeneration) merge(it)
         })
     }
@@ -371,7 +371,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val cap = store.tripPrefs.value.maxChanges
         requestedMaxChanges = cap
         val passes = routePasses(cap)
-        passes.forEach { changes -> routePlans.cached(RouteQuery(f, t, at, byArrival, changes))?.let {
+        passes.forEach { changes -> routePlans.cached(RouteQuery(f, t, at, byArrival, changes, rules = store.tripPrefs.value.rules))?.let {
             tripScheduleCached = true
             merge(it)
         } }
@@ -557,8 +557,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 tailAlternatives = Loadable(sorted, loading = true)
             }
             try {
-                TripSearch.fetch(t.from, t.to, t.notBefore, false, 1, onBatch = ::add)
-                if (prefs.maxChanges >= 2) runCatching { TripSearch.fetch(t.from, t.to, t.notBefore, false, 2, onBatch = ::add) }
+                TripSearch.fetch(t.from, t.to, t.notBefore, false, 1, onBatch = ::add, rules = prefs.rules)
+                if (prefs.maxChanges >= 2) runCatching { TripSearch.fetch(t.from, t.to, t.notBefore, false, 2, onBatch = ::add, rules = prefs.rules) }
                     .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
                 tailAlternatives = Loadable(tailAlternatives?.data.orEmpty())
             } catch (e: kotlinx.coroutines.CancellationException) {

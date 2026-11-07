@@ -210,6 +210,7 @@ object SrsApi {
         at: ZonedDateTime,
         arrival: Boolean,
         maxChanges: Int,
+        rules: SearchRules = SearchRules(),
     ): List<Route> {
         val minute = at.withSecond(0).withNano(0)
         val params = buildMap {
@@ -222,10 +223,10 @@ object SrsApi {
             put("interchange", "true")
             put("indoor360", "false")
         }
-        return routeCache.get(params.toString()) {
+        return routeCache.get("$params|$rules") {
             // Own backend first (Transitous timetable + VRR live, under 1 KB), then the DELFI EFA, then the slow provider.
             val own = try {
-                Pm.time("backend routes") { BackendApi.routesBetween(from, to, at, arrival) }
+                Pm.time("backend routes") { BackendApi.routesBetween(from, to, at, arrival, maxChanges, rules) }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {

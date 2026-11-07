@@ -47,9 +47,14 @@ export JAVA_HOME=~/.local/share/mise/installs/java/temurin-21
 
 Requests go to `https://service.ivanto.de/srs/api/v1/` with the tenant and app identifiers of the original app (`SrsApi.kt`). Ticketing, login, and push are not used.
 
-- **Trip search** (`TripSearch.kt`) resolves addresses to nearby stops and routes stop to stop in parallel with at most one change. A slower pass with two changes follows in the background.
+- **Trip search** (`TripSearch.kt`) asks the own backend once, from the real start to the real destination, with the minimum change time and the most changes from the settings. The backend (`backend/`) plans with Transitous, adds up to four ways to reach each main train (feeders, staggered by when to leave) and, for departures, other onward buses, and replaces "one stop by bus, then wait" with a walk. When the backend fails, the app falls back to pairs of nearby stops.
+- **Ranking** keeps a train only when its best way is not beaten by another (leaves later and arrives no later, arrives clearly earlier for leaving a few minutes earlier, or changes less for nothing). The list shows either up to four ways per train ("Mehr Varianten") or more trains with the best way each ("Mehr Züge").
 - **Saved trips** (`LiveTrip.kt`) refresh realtime data per leg and flag transfers that no longer work.
 - **Settings** under Profil, Einstellungen set the search style, the minimum transfer time, and the maximum number of changes.
+
+## Routing benchmark
+
+`tools/bench/run.sh` runs 208 searches (Paderborn, the region around it, Cologne; weekday, Saturday, Sunday; morning to night; departure and arrival; 3, 5, and 8 minutes to change) through a local backend and the app's ranking. Router answers are recorded on disk and replayed, so reruns cost Transitous nothing; new ones go out one a second. `tools/bench/reference.py` fetches the router's own answer per search, and `tools/bench/report.py` writes `docs/bench-routing.html`.
 
 ## License
 
