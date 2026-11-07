@@ -48,7 +48,8 @@ data class BLeg(
 
 @Serializable data class BItin(val dep: Long = 0, val arr: Long = 0, val changes: Int = 0, val legs: List<BLeg> = emptyList())
 @Serializable data class BPlan(val itins: List<BItin> = emptyList())
-@Serializable data class BLegLive(val itin: Int, val leg: Int, val dep: Long, val arr: Long)
+/** `src` is "vrr", "transitous", or "arr" (only the arrival board knew the leg). */
+@Serializable data class BLegLive(val itin: Int, val leg: Int, val dep: Long, val arr: Long, val cancelled: Boolean = false, val src: String = "")
 @Serializable data class BLive(val legs: List<BLegLive> = emptyList(), val gone: List<Int> = emptyList())
 
 /** Push message: `set` entries are [planned minute, line, expected unix seconds], `clear` entries [planned minute, line]. */
@@ -134,7 +135,7 @@ object BackendApi {
         val req = Request.Builder().url(url("/v1/plan", params)).build()
         val (plan, live) = call(req) { src ->
             val first = src.readUtf8Line() ?: throw ApiException("Backend: leere Antwort")
-            // the live frame is optional: the stream ends after frame 1 outside NRW or when VRR is slow
+            // the live frame is optional: the stream ends after frame 1 when every board lookup failed
             val second = runCatching { src.readUtf8Line() }.getOrNull()
             Pm.note("backend frames ${first.length} + ${second?.length ?: 0} chars")
             json.decodeFromString<BPlan>(first) to second?.let { runCatching { json.decodeFromString<BLive>(it) }.getOrNull() }
@@ -153,13 +154,13 @@ object BackendApi {
         return if (gid.startsWith("de:05774:")) "232" + gid.substringAfterLast(":").padStart(5, '0') else gid
     }
 
-    private fun station(id: String, name: String, pos: List<Double>, unix: Long, expected: Long?): Station {
+    private fun station(id: String, name: String, pos: List<Double>, unix: Long, expected: Long?, canceled: Boolean = false): Station {
         val gid = id.removePrefix("de-DELFI_").split(":").take(3).joinToString(":").takeIf { it.startsWith("de:") }
         val planned = iso(unix)
         return Station(
             type = if (id.isEmpty()) "address" else "stop", id = providerId(id), globalId = gid, name = name,
             latitude = pos.getOrNull(0) ?: 0.0, longitude = pos.getOrNull(1) ?: 0.0,
-            date = planned, expectedDate = expected?.takeIf { it != unix }?.let(::iso),
+            date = planned, expectedDate = expected?.takeIf { it != unix }?.let(::iso), canceled = canceled,
         )
     }
 
@@ -182,9 +183,11 @@ object BackendApi {
                 val lv = liveBy[i to k]
                 val walk = l.mode == "WALK"
                 val stops = buildList {
-                    add(station(l.from_id, l.from_name, l.from_pos, l.dep, lv?.dep))
+                    // a cancelled leg stays in the list, marked "Fällt aus" by its first stop
+                    val off = lv?.cancelled == true
+                    add(station(l.from_id, l.from_name, l.from_pos, l.dep, lv?.dep, off))
                     if (!walk) l.via.forEach { v -> add(station(v.id, v.name, emptyList(), v.arr, null)) }
-                    add(station(l.to_id, l.to_name, l.to_pos, l.arr, lv?.arr))
+                    add(station(l.to_id, l.to_name, l.to_pos, l.arr, lv?.arr, off))
                 }
                 PartialRoute(
                     clazz = if (walk) "walkway" else "vehicleRide",

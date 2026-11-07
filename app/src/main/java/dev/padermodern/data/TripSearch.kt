@@ -12,7 +12,13 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Duration
 import java.time.ZonedDateTime
+import kotlin.math.asin
 import kotlin.math.ceil
+import kotlin.math.cos
+import kotlin.math.pow
+import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 data class Endpoint(val stop: Station, val walkMin: Int)
 
@@ -40,6 +46,8 @@ object TripSearch {
     private const val MAX_VARIANTS = 4
     private const val DIRECT_EXTRA = 3
     private const val CHANGE_EXTRA = 1
+    /** The list opens with at least this many connections, so a trip with few variants still fills the screen. */
+    const val MIN_ROWS = 8
     private const val VARIANT_SLACK_MIN = 45.0
 
     fun walkMinutes(meters: Int): Int = ceil(meters * WALK_DETOUR / WALK_M_PER_MIN).toInt().coerceAtLeast(1)
@@ -148,7 +156,26 @@ object TripSearch {
         )
     }
 
-    private fun withWalks(r: Route, o: Endpoint, d: Endpoint, from: Station, to: Station): Route {
+    private fun meters(a: Station, b: Station): Double? {
+        if ((a.latitude == 0.0 && a.longitude == 0.0) || (b.latitude == 0.0 && b.longitude == 0.0)) return null
+        val dLat = Math.toRadians(b.latitude - a.latitude)
+        val dLon = Math.toRadians(b.longitude - a.longitude)
+        val h = sin(dLat / 2).pow(2) + cos(Math.toRadians(a.latitude)) * cos(Math.toRadians(b.latitude)) * sin(dLon / 2).pow(2)
+        return 6_371_000 * 2 * asin(sqrt(h.coerceIn(0.0, 1.0)))
+    }
+
+    /**
+     * Minutes for one walk that replaces the walk to [via] plus the provider's own [provider] walks from there. A
+     * provider route that starts at a bus stop often walks on to the station; the traveller goes there directly,
+     * so the walk is the direct distance, never longer than the detour.
+     */
+    private fun mergedWalk(a: Station, b: Station?, ownMin: Int, provider: List<PartialRoute>): Int {
+        val detour = ownMin + provider.sumOf { it.walkMinutes }
+        val direct = b?.let { meters(a, it) }?.let { walkMinutes(it.roundToInt()) } ?: return detour
+        return direct.coerceAtMost(detour)
+    }
+
+    internal fun withWalks(r: Route, o: Endpoint, d: Endpoint, from: Station, to: Station): Route {
         if (o.walkMin == 0 && d.walkMin == 0) return r
         var parts = r.partialRoutes
         var dep = r.departureDate
@@ -156,18 +183,31 @@ object TripSearch {
         var expDep = r.expectedDepartureDate
         var expArr = r.expectedArrivalDate
         if (o.walkMin > 0) {
-            parseTime(r.departureDate)?.let { t ->
-                val start = t.minusMinutes(o.walkMin.toLong())
-                parts = listOf(walkLeg(from, o.stop, start, o.walkMin)) + parts
+            // provider walks before the first ride merge into ours, so the list never shows two walks in a row
+            val lead = parts.takeWhile { it.isWalk }
+            val ride = parts.getOrNull(lead.size)
+            val anchor = ride?.departureDate ?: r.departureDate
+            parseTime(anchor)?.let { t ->
+                val minutes = if (lead.isEmpty() || ride == null) o.walkMin else mergedWalk(from, ride.stations.firstOrNull(), o.walkMin, lead)
+                val target = ride?.stations?.firstOrNull()?.takeIf { lead.isNotEmpty() } ?: o.stop
+                val start = t.minusMinutes(minutes.toLong())
+                parts = listOf(walkLeg(from, target, start, minutes)) + parts.drop(lead.size)
                 dep = start.iso()
-                expDep = expDep?.let { parseTime(it)?.minusMinutes(o.walkMin.toLong())?.iso() }
+                val rideExp = if (lead.isEmpty()) expDep else ride?.expectedDepartureDate
+                expDep = rideExp?.let(::parseTime)?.minusMinutes(minutes.toLong())?.iso()
             }
         }
         if (d.walkMin > 0) {
-            parseTime(r.arrivalDate)?.let { t ->
-                parts = parts + walkLeg(d.stop, to, t, d.walkMin)
-                arr = t.plusMinutes(d.walkMin.toLong()).iso()
-                expArr = expArr?.let { parseTime(it)?.plusMinutes(d.walkMin.toLong())?.iso() }
+            val tail = parts.takeLastWhile { it.isWalk }
+            val ride = parts.getOrNull(parts.size - tail.size - 1)
+            val anchor = if (tail.isNotEmpty()) ride?.arrivalDate else r.arrivalDate
+            parseTime(anchor)?.let { t ->
+                val minutes = if (tail.isEmpty() || ride == null) d.walkMin else mergedWalk(to, ride.stations.lastOrNull(), d.walkMin, tail)
+                val source = ride?.stations?.lastOrNull()?.takeIf { tail.isNotEmpty() } ?: d.stop
+                parts = parts.dropLast(tail.size) + walkLeg(source, to, t, minutes)
+                arr = t.plusMinutes(minutes.toLong()).iso()
+                val rideExp = if (tail.isEmpty()) expArr else ride?.expectedArrivalDate
+                expArr = rideExp?.let(::parseTime)?.plusMinutes(minutes.toLong())?.iso()
             }
         }
         return r.copy(
@@ -241,13 +281,19 @@ object TripSearch {
         fun at(g: List<Scored>) = if (window.byArrival) g.minOf { it.arr } else g.minOf { it.dep }
         // Direct rides have no variants, so a handful of them is one choice list; connections with a change show
         // the nearest trains, each with its variants.
-        fun pick(gs: List<List<Scored>>, extra: Int): List<List<Scored>> {
+        fun pick(gs: List<List<Scored>>, extra: Int, minRows: Int = 0): List<List<Scored>> {
             val (far, near) = gs.partition { if (window.byArrival) at(it) <= window.anchor else at(it) >= window.anchor }
-            return (if (window.byArrival) far.sortedByDescending { at(it) } else far.sortedBy { at(it) }).take(window.limit + extra) +
-                (if (window.byArrival) near.sortedBy { at(it) } else near.sortedByDescending { at(it) }).take(window.nearLimit)
+            val ordered = if (window.byArrival) far.sortedByDescending { at(it) } else far.sortedBy { at(it) }
+            val picked = ArrayList<List<Scored>>(); var rows = 0
+            for (g in ordered) {
+                if (picked.size >= window.limit + extra && rows >= minRows) break
+                picked += g; rows += g.size
+            }
+            return picked + (if (window.byArrival) near.sortedBy { at(it) } else near.sortedByDescending { at(it) }).take(window.nearLimit)
         }
         val (directs, changes) = groups.partition { g -> g.all { it.direct } }
-        val kept = pick(directs, DIRECT_EXTRA) + pick(changes, CHANGE_EXTRA)
+        val directPicked = pick(directs, DIRECT_EXTRA)
+        val kept = directPicked + pick(changes, CHANGE_EXTRA, (MIN_ROWS - directPicked.sumOf { it.size }).coerceAtLeast(0))
         return kept.flatten().sortedWith(compareBy({ it.dep }, { it.arr })).map { it.route }
     }
 

@@ -1,6 +1,7 @@
 package dev.padermodern.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -48,10 +49,17 @@ class TripSearchTest {
             listOf("100", "8", "R50").mapIndexed { i, bus -> trainThenBus(12 to 0, bus, 12 to 35 + i, 12 to 52 + i) } +
             listOf("1").map { bus -> trainThenBus(13 to 0, bus, 13 to 35, 13 to 50) }
         val ranked = TripSearch.rank(routes, TripSearch.window(now, arrival = false))
-        // two trains, the first with its four buses and the second with its three, and no third train
+        // the first train with its four buses, the second with its three, and a third train to reach the eight rows
         assertEquals(4, ranked.count { it.departureDate == at(11, 0) })
         assertEquals(3, ranked.count { it.departureDate == at(12, 0) })
-        assertEquals(0, ranked.count { it.departureDate == at(13, 0) })
+        assertEquals(1, ranked.count { it.departureDate == at(13, 0) })
+    }
+
+    @Test
+    fun listOpensWithAtLeastEightConnections() {
+        val routes = (11..13).flatMap { h -> listOf(0, 10, 20).map { m -> trainThenBus(h to m, "100", h to m + 35, h to m + 38) } }
+        val ranked = TripSearch.rank(routes, TripSearch.window(now, arrival = false))
+        assertEquals(TripSearch.MIN_ROWS, ranked.size)
     }
 
     @Test
@@ -68,5 +76,38 @@ class TripSearchTest {
             Route(partialRoutes = listOf(ride("L$i", 3, d, 11 to (i * 6 + 12))), departureDate = at(d.first, d.second), arrivalDate = at(11, i * 6 + 12))
         }
         assertEquals(4, TripSearch.rank(buses, TripSearch.window(now, arrival = false)).size)
+    }
+
+    /** Screenshot 2026-11-07: "Mein Standort", 8 min walk, 8 min walk, Geseke. The route starts at a bus stop and
+     * the provider walks on to the station; the traveller walks there directly, in one leg. */
+    @Test
+    fun walkToABusStopAndTheProvidersWalkOnBecomeOneWalk() {
+        val me = Station(type = "address", name = "Mein Standort", latitude = 51.6400, longitude = 8.5150)
+        val busStop = Station(type = "stop", id = "24032568", name = "Schulzentrum Mitte", latitude = 51.64167, longitude = 8.51375)
+        val station = Station(type = "stop", id = "24032585", name = "Geseke", latitude = 51.6440, longitude = 8.5150)
+        val dest = Station(type = "stop", id = "23207000", name = "Paderborn Hbf")
+        val providerWalk = PartialRoute(clazz = "walkway", type = 100, transferTime = 8, departureDate = at(10, 47), arrivalDate = at(10, 55),
+            stations = listOf(busStop.copy(date = at(10, 47)), station.copy(date = at(10, 55))))
+        val train = PartialRoute(shortName = "RB89", departureDate = at(10, 55), arrivalDate = at(11, 10), expectedDepartureDate = at(10, 56),
+            stations = listOf(station.copy(date = at(10, 55)), dest.copy(date = at(11, 10))))
+        val r = Route(partialRoutes = listOf(providerWalk, train), departureDate = at(10, 47), arrivalDate = at(11, 10))
+        val out = TripSearch.withWalks(r, Endpoint(busStop, 8), Endpoint(dest, 0), me, dest)
+        assertEquals(2, out.partialRoutes.size)
+        val walk = out.partialRoutes.first()
+        // 445 m straight to the station: 7 min, not 8 + 8
+        assertEquals(7, walk.transferTime)
+        assertEquals("Geseke", walk.stations.last().name)
+        assertEquals(at(10, 48), out.departureDate)
+        assertEquals(at(10, 49), out.expectedDepartureDate)
+    }
+
+    @Test
+    fun plainRouteStillGetsItsWalk() {
+        val me = Station(type = "address", name = "Mein Standort", latitude = 51.64, longitude = 8.515)
+        val stop = Station(type = "stop", id = "1", name = "A", latitude = 51.641, longitude = 8.515)
+        val r = route(10 to 25, 10 to 40)
+        val out = TripSearch.withWalks(r, Endpoint(stop, 4), Endpoint(stop.copy(id = "2"), 0), me, stop)
+        assertEquals(at(10, 21), out.departureDate)
+        assertTrue(out.partialRoutes.first().isWalk && out.partialRoutes.first().transferTime == 4)
     }
 }

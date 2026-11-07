@@ -103,15 +103,15 @@ class RouteRealtimeTest {
         assertEquals("2026-10-27T10:35:00+0100", out.route.partialRoutes.single().expectedArrivalDate)
     }
 
-    @Test fun wrongBoardStopAndUnmatchedRunClearOldForecastAndCancellation() = runTest {
+    @Test fun wrongBoardStopKeepsIncomingForecastAndMatchedRunReplacesIt() = runTest {
         val base = leg().copy(expectedDepartureDate = "old", expectedArrivalDate = "old", stations = listOf(
             station("A", "2026-10-27T10:00:00+0100", "old", true),
             station("B", "2026-10-27T10:30:00+0100", "old", true),
         ))
         val wrongStop = RouteRealtime.refresh(Route(partialRoutes = listOf(base))) { _, _ -> listOf(departure().copy(stopId = "OTHER")) }
         assertFalse(wrongStop.verified)
-        assertNull(wrongStop.route.partialRoutes.single().stations.first().expectedDate)
-        assertFalse(wrongStop.route.partialRoutes.single().stations.first().canceled)
+        assertEquals("old", wrongStop.route.partialRoutes.single().stations.first().expectedDate)
+        assertTrue(wrongStop.route.partialRoutes.single().stations.first().canceled)
         val fresh = providerLeg(listOf(station("A", "2026-10-27T10:00:00+0100"), station("B", "2026-10-27T10:30:00+0100")))
         val refreshed = RouteRealtime.refresh(Route(partialRoutes = listOf(base))) { _, _ -> listOf(departure(Route(partialRoutes = listOf(fresh)))) }
         assertTrue(refreshed.verified)
@@ -125,5 +125,19 @@ class RouteRealtimeTest {
         val out = RouteRealtime.refresh(original) { _, _ -> listOf(departure(Route(partialRoutes = listOf(rt)))) }
         assertFalse(out.verified)
         assertNull(out.route.expectedArrivalDate)
+    }
+
+    /** RB89 Geseke 2026-11-07: the backend said +7, the provider board knows no stop "de:05974:32585". */
+    @Test fun keepsBackendForecastWhenBoardKnowsNothing() = runTest {
+        val late = leg("RB89", "de:05974:32585", "de:05774:7000").let { l ->
+            l.copy(expectedDepartureDate = "2026-10-27T10:07:00+0100", expectedArrivalDate = "2026-10-27T10:38:00+0100",
+                stations = listOf(station("de:05974:32585", "2026-10-27T10:00:00+0100", "2026-10-27T10:07:00+0100"), station("de:05774:7000", "2026-10-27T10:30:00+0100", "2026-10-27T10:38:00+0100")))
+        }
+        val walk = PartialRoute(clazz = "walkway", transferTime = 8, departureDate = "2026-10-27T09:52:00+0100", arrivalDate = "2026-10-27T10:00:00+0100")
+        val out = RouteRealtime.refresh(Route(partialRoutes = listOf(walk, late))) { _, _ -> emptyList() }
+        assertFalse(out.verified)
+        assertEquals("2026-10-27T10:07:00+0100", out.route.partialRoutes[1].expectedDepartureDate)
+        assertEquals("2026-10-27T10:38:00+0100", out.route.expectedArrivalDate)
+        assertEquals("2026-10-27T09:59:00+0100", out.route.expectedDepartureDate)
     }
 }

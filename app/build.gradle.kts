@@ -12,13 +12,13 @@ android {
         applicationId = "dev.padermodern"
         minSdk = 31
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     // Backend for connections and live pushes. Debug talks to the PC via `adb reverse tcp:8099 tcp:8099`.
-    // Release stays empty (provider only) until a server exists: -Pbrunel.backend=https://host
+    // Release uses the deployed backend (5.231.74.60, systemd unit brunel-backend); -Pbrunel.backend= overrides it.
     val backendUrl = providers.gradleProperty("brunel.backend").orNull
     buildTypes {
         debug {
@@ -27,7 +27,7 @@ android {
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("debug")
-            buildConfigField("String", "BACKEND_URL", "\"${backendUrl ?: ""}\"")
+            buildConfigField("String", "BACKEND_URL", "\"${backendUrl ?: "https://brunel.janosch-bl.de"}\"")
         }
     }
     compileOptions {

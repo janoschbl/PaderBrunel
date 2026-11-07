@@ -40,4 +40,13 @@ class BackendApiTest {
         val withWalk = BackendApi.toRoutes(plan, null).first { r -> r.partialRoutes.any { it.isWalk } }
         assertTrue(withWalk.partialRoutes.first { it.isWalk }.walkMinutes > 0)
     }
+
+    @Test fun cancelledLegStaysListedAndIsMarked() {
+        val i = plan.itins.indexOfFirst { it.legs.any { l -> l.mode != "WALK" } }
+        val k = plan.itins[i].legs.indexOfFirst { it.mode != "WALK" }
+        val leg = plan.itins[i].legs[k]
+        val routes = BackendApi.toRoutes(plan, BLive(legs = listOf(BLegLive(i, k, leg.dep, leg.arr, cancelled = true, src = "vrr"))))
+        assertEquals(plan.itins.size, routes.size)
+        assertTrue(routes[i].partialRoutes[k].stations.first().canceled)
+    }
 }

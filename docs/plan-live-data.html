@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>padermodern · live data fix</title>
+<style>
+:root{--bg:#0d0d0d;--hover:#161616;--line:#2a2a2a;--text:#e8e8e8;--muted:#888;--dim:#555;--accent:#293fc5;--green:#28c840;--blue:#4f6dff;--yellow:#ffbd2e;--red:#ff5f57;--mono:"Fira Code","JetBrains Mono","Cascadia Code",ui-monospace,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{width:min(900px,calc(100% - 48px));margin:32px auto 48px}
+.eyebrow{font:11px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin:36px 0 4px}
+main>.eyebrow:first-child{margin-top:0}
+h1{font-size:22px;margin:0 0 4px;font-weight:600}
+h2{font-size:16px;margin:0 0 12px;font-weight:600}
+p{margin:8px 0;color:var(--text)}
+.ctx{color:var(--muted);margin:0 0 8px}
+.panel{border:1px solid var(--line);border-radius:8px;padding:16px;background:var(--bg);margin:0 0 10px}
+.panel svg{width:100%;display:block}
+.foot{font:11px var(--mono);color:var(--dim);margin:4px 0 12px}
+.rows{border-top:1px solid var(--line)}
+.row{display:grid;grid-template-columns:150px 1fr;gap:16px;padding:8px 6px;border-bottom:1px solid var(--line);transition:background .12s}
+.row:hover{background:var(--hover)}
+.row>.k{font:11.5px var(--mono);color:var(--muted);padding-top:2px}
+.row.h>.k,.row.h>div{font:11px var(--mono);color:var(--dim);text-transform:uppercase;letter-spacing:.08em}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.st{display:inline-flex;align-items:center;gap:6px;font:11.5px var(--mono)}
+.st svg{width:14px;height:14px}
+.ok{color:var(--green)}.bad{color:var(--red)}.warn{color:var(--yellow)}.act{color:var(--blue)}
+code{font:12px var(--mono);color:#cfcfcf}
+.mono{font-family:var(--mono);font-size:12px}
+footer{font:11px var(--mono);color:var(--dim);border-top:1px solid var(--line);padding-top:10px;margin-top:36px}
+@media (prefers-reduced-motion:reduce){.row{transition:none}}
+</style>
+</head>
+<body>
+<main>
+<div class="eyebrow">padermodern · plan · 2026-11-07</div>
+<h1>Make live delays match the station</h1>
+<p class="ctx">RB89 Geseke 10:25 was +7 on the platform, in DB Navigator, and in Padersprinter. Our app showed it on time.</p>
+
+<!-- TL;DR -->
+<div class="eyebrow">Short version</div>
+<h2>Every provider had the delay. Our pipeline lost it in three places.</h2>
+<div class="panel">
+<svg viewBox="0 0 860 150" font-family="Fira Code, JetBrains Mono, monospace" font-size="12">
+  <g fill="#888"><text x="0" y="14">PROVIDER SAYS</text><text x="300" y="14">OUR BACKEND</text><text x="600" y="14">APP SCREEN</text></g>
+  <rect x="0" y="28" width="240" height="96" rx="4" fill="#161616" stroke="#28c840"/>
+  <text x="14" y="52" fill="#28c840">VRR DM      10:25 → 10:32</text>
+  <text x="14" y="72" fill="#28c840">Transitous  10:25 → 10:32</text>
+  <text x="14" y="92" fill="#28c840">SRS         10:25 → 10:33</text>
+  <text x="14" y="112" fill="#888">DB station  +5</text>
+  <rect x="300" y="28" width="240" height="96" rx="4" fill="#161616" stroke="#ff5f57"/>
+  <text x="314" y="52" fill="#ff5f57">1 VRR trip window ends</text>
+  <text x="314" y="68" fill="#ff5f57">  at 10:04, 10:25 unmatched</text>
+  <text x="314" y="92" fill="#ffbd2e">2 itin times mix live and</text>
+  <text x="314" y="108" fill="#ffbd2e">  planned, cached 10 min</text>
+  <rect x="600" y="28" width="260" height="96" rx="4" fill="#161616" stroke="#ff5f57"/>
+  <text x="614" y="52" fill="#ff5f57">3 RouteRealtime clears the</text>
+  <text x="614" y="68" fill="#ff5f57">  forecast, then asks SRS with</text>
+  <text x="614" y="84" fill="#ff5f57">  de:05974:32585 → empty</text>
+  <text x="614" y="108" fill="#e8e8e8">shows 10:24 – 11:23, no delay</text>
+  <g stroke="#555" fill="none"><path d="M240 76H296"/><path d="M540 76H596"/></g>
+  <path d="M292 72l6 4-6 4z" fill="#555"/><path d="M592 72l6 4-6 4z" fill="#555"/>
+</svg>
+</div>
+<p>Fix: build the live frame from departure boards per leg instead of one VRR trip search, keep plan times purely scheduled, and stop the app from erasing a delay it cannot re-check.</p>
+
+<!-- Provider check -->
+<div class="eyebrow">Provider check</div>
+<h2>Each source, queried for this train at 10:25 to 10:30</h2>
+<div class="rows">
+  <div class="row h"><div class="k">source</div><div>result</div></div>
+  <div class="row"><div class="k">VRR DM dep</div><div><span class="st ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/></svg>+7</span> <code>XML_DM_REQUEST</code> at <code>de:05974:32585</code>, line <code>RB 89</code>, status MONITORED.</div></div>
+  <div class="row"><div class="k">VRR DM arr</div><div><span class="st ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/></svg>+8</span> <code>itdDateTimeDepArr=arr</code> at Paderborn Hbf gives 10:40 → 10:48. Not used today.</div></div>
+  <div class="row"><div class="k">VRR trip</div><div><span class="st bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M5 19L19 5"/></svg>miss</span> Asked from 09:55 (10:20 minus <code>LOOKBACK</code>), it returns 3 journeys, not 8. Window 09:25 to 10:04. Bus variants from <code>expand</code> never match a VRR journey.</div></div>
+  <div class="row"><div class="k">Transitous stoptimes</div><div><span class="st ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/></svg>+7</span> <code>realTime: true</code>, same as VRR.</div></div>
+  <div class="row"><div class="k">Transitous plan</div><div><span class="st warn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 7v5l3 2"/></svg>mixed</span> <code>startTime</code> is 10:32. <code>parse_transitous</code> takes it for the itinerary and the scheduled 10:25 for the leg, then caches both for 10 min.</div></div>
+  <div class="row"><div class="k">SRS departuresinfo</div><div><span class="st ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/></svg>+8</span> with <code>stationID=24032585</code>. <span class="bad">Empty</span> with <code>de:05974:32585</code>, which is what <code>BackendApi.providerId</code> sends for any stop outside Kreis Paderborn.</div></div>
+  <div class="row"><div class="k">SRS id prefix</div><div><span class="st warn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 7v5l3 2"/></svg>no rule</span> Soest is <code>240…</code>, Bielefeld <code>230…</code>, Höxter <code>232…</code>. The prefix does not follow the DELFI district key.</div></div>
+  <div class="row"><div class="k">db.transport.rest</div><div><span class="st act"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="3 3"><circle cx="12" cy="12" r="10"/></svg>down</span> No answer. Not used, not needed: VRR and Transitous already carry DB data.</div></div>
+  <div class="row"><div class="k">our /v1/plan</div><div><span class="st bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M5 19L19 5"/></svg>miss</span> Live frame matched itineraries 0 to 2 (past trains). The 10:25 train and everything after it had no live data and no <code>gone</code> flag.</div></div>
+</div>
+<p class="foot">Raw answers saved in backend/tests/fixtures/*-2026-11-07.json. Backend run locally from target/release.</p>
+
+<!-- Starting point -->
+<div class="eyebrow">Starting point</div>
+<h2>Live data passes through four layers, and the last one can erase it</h2>
+<div class="panel">
+<svg viewBox="0 0 860 120" font-family="Fira Code, JetBrains Mono, monospace" font-size="11.5">
+  <g fill="#161616" stroke-width="1">
+    <rect x="0" y="20" width="190" height="64" rx="4" stroke="#888"/>
+    <rect x="222" y="20" width="190" height="64" rx="4" stroke="#ff5f57"/>
+    <rect x="444" y="20" width="190" height="64" rx="4" stroke="#888"/>
+    <rect x="666" y="20" width="194" height="64" rx="4" stroke="#ff5f57"/>
+  </g>
+  <text x="12" y="44" fill="#e8e8e8">plan_static</text><text x="12" y="62" fill="#888">Transitous, cache 600 s</text>
+  <text x="234" y="44" fill="#ff5f57">plan_live</text><text x="234" y="62" fill="#888">1 VRR trip at t-25 min</text>
+  <text x="456" y="44" fill="#e8e8e8">BackendApi.toRoutes</text><text x="456" y="62" fill="#888">frame 1 + frame 2</text>
+  <text x="678" y="44" fill="#ff5f57">RouteRealtime.refresh</text><text x="678" y="62" fill="#888">clear, re-check via SRS</text>
+  <g stroke="#555"><path d="M190 52H218"/><path d="M412 52H440"/><path d="M634 52H662"/></g>
+  <text x="0" y="108" fill="#555">backend/src/main.rs · upstream.rs · plan.rs</text>
+  <text x="444" y="108" fill="#555">app/…/data/BackendApi.kt · RouteRealtime.kt · TripResultSet.kt</text>
+</svg>
+</div>
+<p><code>refreshVisible</code> in <code>AppViewModel</code> stores the SRS result even when <code>verified</code> is false, and <code>TripResultSet.overlay</code> copies its empty expected times over the backend's.</p>
+
+<!-- Design -->
+<div class="eyebrow">Design</div>
+<h2>One board lookup per leg end, cached and shared</h2>
+<div class="panel">
+<svg viewBox="0 0 860 190" font-family="Fira Code, JetBrains Mono, monospace" font-size="11.5">
+  <g fill="#161616">
+    <rect x="0" y="24" width="200" height="56" rx="4" stroke="#888"/>
+    <rect x="0" y="108" width="200" height="56" rx="4" stroke="#888"/>
+    <rect x="250" y="24" width="250" height="140" rx="4" stroke="#4f6dff"/>
+    <rect x="550" y="24" width="310" height="140" rx="4" stroke="#28c840"/>
+  </g>
+  <text x="12" y="46" fill="#e8e8e8">plan frame</text><text x="12" y="64" fill="#888">scheduled times only</text>
+  <text x="12" y="130" fill="#e8e8e8">legs due in −30…+90 min</text><text x="12" y="148" fill="#888">max 8 stop lookups</text>
+  <text x="262" y="46" fill="#4f6dff">board(stop, dep|arr, 15-min slot)</text>
+  <text x="262" y="70" fill="#e8e8e8">1  VRR DM estimate</text>
+  <text x="262" y="90" fill="#e8e8e8">2  Transitous realTime</text>
+  <text x="262" y="106" fill="#888">     (rail in NRW, all outside)</text>
+  <text x="262" y="126" fill="#e8e8e8">3  arr = planned + dep delay</text>
+  <text x="262" y="150" fill="#888">cache 20 s, shared with /watch</text>
+  <text x="562" y="46" fill="#28c840">live frame</text>
+  <text x="562" y="70" fill="#e8e8e8">LegLive { itin, leg, dep, arr,</text>
+  <text x="562" y="88" fill="#e8e8e8">          cancelled, src }</text>
+  <text x="562" y="114" fill="#888">covers every itinerary, including</text>
+  <text x="562" y="132" fill="#888">bus variants from expand()</text>
+  <text x="562" y="150" fill="#888">VRR trip request removed</text>
+  <g stroke="#555" fill="none"><path d="M200 52H246"/><path d="M200 136H246"/><path d="M500 94H546"/></g>
+</svg>
+</div>
+<p>A leg is a departure at one stop and an arrival at another, which is exactly what a departure board keys on: planned minute plus line. That works for every itinerary, not only the three VRR picks. VRR stays first because its bus data agreed with the operator where Transitous did not.</p>
+<div class="rows">
+  <div class="row"><div class="k">backend</div><div><code>parse_transitous</code> takes itinerary dep and arr from the first and last leg's scheduled times. New <code>upstream::slot_board</code> (DM with <code>itdTime</code>, dep or arr) and <code>plan::live</code> from boards. <code>vrr_live</code> goes.</div></div>
+  <div class="row"><div class="k">app</div><div><code>RouteRealtime</code> keeps a leg's incoming forecast when it cannot match it. <code>BackendApi.toRoutes</code> marks cancelled legs. The SRS re-check stays as a second opinion inside Kreis Paderborn.</div></div>
+</div>
+
+<!-- Risks -->
+<div class="eyebrow">Risks</div>
+<h2>More VRR calls is the main cost</h2>
+<div class="panel">
+<svg viewBox="0 0 860 92" font-family="Fira Code, JetBrains Mono, monospace" font-size="11.5">
+  <g fill="#888"><text x="0" y="12">upstream calls per search</text></g>
+  <g stroke="#2a2a2a"><path d="M200 22V86"/><path d="M400 22V86"/><path d="M600 22V86"/><path d="M800 22V86"/></g>
+  <g fill="#888"><text x="196" y="12">0</text><text x="396" y="12">4</text><text x="596" y="12">8</text><text x="796" y="12">12</text></g>
+  <text x="0" y="44" fill="#888">today</text>
+  <rect x="200" y="32" width="50" height="18" rx="3" fill="#161616" stroke="#888"/><text x="258" y="45" fill="#888">1 VRR trip</text>
+  <text x="0" y="76" fill="#888">new, cold cache</text>
+  <rect x="200" y="64" width="400" height="18" rx="3" fill="#161616" stroke="#ffbd2e"/><text x="608" y="77" fill="#ffbd2e">≤ 8 DM, usually 3 to 5</text>
+</svg>
+</div>
+<p class="foot">Cap of 8 per frame. Boards are shared across users and with /watch, so a warm cache costs 0.</p>
+<div class="rows">
+  <div class="row"><div class="k">VRR load</div><div>Cap 8 lookups, 20 s cache, skip legs more than 90 min out. They have no forecast yet anyway.</div></div>
+  <div class="row"><div class="k">line names</div><div><code>RB 89</code> vs <code>RB89</code> is handled by <code>norm_line</code>. Replacement buses (<code>SEV RE11</code>) will not match and stay on schedule.</div></div>
+  <div class="row"><div class="k">arr guess</div><div>Fallback 3 assumes a delay holds to the next stop. Used only when the DM arrival board has no estimate.</div></div>
+</div>
+
+<!-- Phases -->
+<div class="eyebrow">Phases</div>
+<h2>Four steps, backend first</h2>
+<div class="panel">
+<svg viewBox="0 0 860 120" font-family="Fira Code, JetBrains Mono, monospace" font-size="11.5">
+  <g stroke="#2a2a2a"><path d="M160 4V116"/><path d="M335 4V116"/><path d="M510 4V116"/><path d="M685 4V116"/><path d="M860 4V116"/></g>
+  <text x="0" y="30" fill="#888">P1 plan times</text><rect x="160" y="18" width="110" height="18" rx="3" fill="#161616" stroke="#4f6dff"/>
+  <text x="0" y="56" fill="#888">P2 board live</text><rect x="270" y="44" width="330" height="18" rx="3" fill="#161616" stroke="#4f6dff"/>
+  <text x="0" y="82" fill="#888">P3 app keeps it</text><rect x="270" y="70" width="170" height="18" rx="3" fill="#161616" stroke="#4f6dff"/>
+  <text x="0" y="108" fill="#888">P4 live check</text><rect x="600" y="96" width="200" height="18" rx="3" fill="#161616" stroke="#ffbd2e"/>
+</svg>
+</div>
+<p class="foot">Relative effort, not dates. P3 can run beside P2.</p>
+<div class="rows">
+  <div class="row h"><div class="k">phase</div><div class="cols"><div>change</div><div>done when</div></div></div>
+  <div class="row"><div class="k">P1 plan times</div><div class="cols"><div><code>parse_transitous</code>: itinerary times from scheduled leg times.</div><div>Every itin has <code>dep == first leg dep</code> in both plan fixtures.</div></div></div>
+  <div class="row"><div class="k">P2 board live</div><div class="cols"><div><code>slot_board</code> for dep and arr, priority VRR, Transitous, propagate. <code>cancelled</code> and <code>src</code> in <code>LegLive</code>. Drop <code>vrr_live</code>.</div><div>Geseke fixture: the 10:25 RB89 leg gets dep 10:32 and arr 10:48, src <code>vrr</code>.</div></div></div>
+  <div class="row"><div class="k">P3 app keeps it</div><div class="cols"><div><code>RouteRealtime</code> keeps the incoming forecast on no match. <code>toRoutes</code> maps <code>cancelled</code>.</div><div>Test: a +7 leg with a loader that finds nothing still shows +7.</div></div></div>
+  <div class="row"><div class="k">P4 live check</div><div class="cols"><div><code>tools/live_check.sh</code> compares <code>/v1/plan</code> with VRR DM and SRS for the next 20 legs on 3 routes.</div><div>All monitored legs agree within 1 min. Device shows the delay the station shows.</div></div></div>
+</div>
+
+<!-- Tests -->
+<div class="eyebrow">Tests</div>
+<h2>Today's real answers become the fixtures</h2>
+<div class="rows">
+  <div class="row"><div class="k">cargo test</div><div><code>live_from_boards</code> on the saved DM, DM-arr, and stoptimes files. <code>cancelled_leg_flagged</code>. <code>itin_times_are_scheduled</code>.</div></div>
+  <div class="row"><div class="k">gradle test</div><div><code>RouteRealtimeTest.keepsForecastWhenUnmatched</code>. <code>BackendApiTest</code> for <code>cancelled</code>.</div></div>
+  <div class="row"><div class="k">manual</div><div><code>tools/live_check.sh</code> during a weekday peak, plus the Geseke → Marsenweg search on the phone.</div></div>
+</div>
+
+<!-- Open decisions -->
+<div class="eyebrow">Open decisions</div>
+<h2>Three choices for you</h2>
+<div class="rows">
+  <div class="row"><div class="k">horizon</div><div>Live lookups for legs up to 90 min ahead. Longer costs more calls for little gain.</div></div>
+  <div class="row"><div class="k">SRS ids</div><div>Map DELFI ids to SRS ids (VRR <code>properties.stopId</code>, cached) so the SRS re-check works outside Kreis Paderborn. I would skip it for now. P3 alone fixes the symptom.</div></div>
+  <div class="row"><div class="k">cancelled</div><div>Show a cancelled connection crossed out, or hide it like <code>gone</code> does today. I would show it.</div></div>
+</div>
+
+<footer>padermodern · snapshot 2026-11-07 10:30 · sources: efa.vrr.de DM and TRIP, api.transitous.org v5, service.ivanto.de srs v1, local brunel-backend</footer>
+</main>
+</body>
+</html>

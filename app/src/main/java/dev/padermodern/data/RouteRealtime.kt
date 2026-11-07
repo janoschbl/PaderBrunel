@@ -29,13 +29,15 @@ object RouteRealtime {
 
     private suspend fun refreshLeg(leg: PartialRoute, load: suspend (String, ZonedDateTime) -> List<Departure>): LegResult {
         val clean = clearForecast(leg)
-        val id = leg.stations.firstOrNull()?.id ?: return LegResult(clean, false)
-        val planned = parseTime(leg.departureDate ?: leg.stations.firstOrNull()?.date) ?: return LegResult(clean, false)
-        if (leg.shortName == null) return LegResult(clean, false)
+        // A leg the provider board cannot confirm keeps the forecast it came with (the backend's live frame). The
+        // board knows only stops with a provider id; outside Kreis Paderborn it found nothing and the delay vanished.
+        val id = leg.stations.firstOrNull()?.id ?: return LegResult(leg, false)
+        val planned = parseTime(leg.departureDate ?: leg.stations.firstOrNull()?.date) ?: return LegResult(leg, false)
+        if (leg.shortName == null) return LegResult(leg, false)
         return try {
             val match = load(id, planned.minusMinutes(2)).firstOrNull {
                 it.shortName == leg.shortName && parseTime(it.departureDate)?.isEqual(planned) == true && (it.stopId == null || it.stopId == id)
-            } ?: return LegResult(clean, false)
+            } ?: return LegResult(leg, false)
             if (match.canceled) return LegResult(clean.copy(stations = clean.stations.mapIndexed { i, s -> s.copy(canceled = i == 0) }), true, true)
             val destination = leg.stations.lastOrNull()?.id
             var slice: List<Station>? = null
@@ -66,7 +68,7 @@ object RouteRealtime {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            LegResult(clean, false, error = e.message ?: "Live-Abfrage fehlgeschlagen")
+            LegResult(leg, false, error = e.message ?: "Live-Abfrage fehlgeschlagen")
         }
     }
 
