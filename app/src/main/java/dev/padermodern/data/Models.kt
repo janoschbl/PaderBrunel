@@ -76,6 +76,12 @@ data class PartialRoute(
     val isWalk: Boolean get() = clazz == "walkway" || type == 100
 
     val walkMinutes: Int get() = if (isWalk) transferTime ?: 0 else 0
+
+    /**
+     * The ride is lost for the traveller only when the stop they board at or leave at is cancelled. A skipped stop in
+     * between (a detour, as on 2026-11-07 when the 8 skipped Rathausplatz and Kamp) does not stop the bus.
+     */
+    val cancelled: Boolean get() = !isWalk && (stations.firstOrNull()?.canceled == true || stations.lastOrNull()?.canceled == true)
 }
 
 @Serializable

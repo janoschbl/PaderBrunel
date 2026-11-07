@@ -31,7 +31,7 @@ object LiveTrip {
     private fun brokenTransfer(r: Route): Pair<Int, String>? {
         val parts = r.partialRoutes
         parts.forEachIndexed { i, leg ->
-            if (!leg.isWalk && leg.stations.any { it.canceled }) return i to "${leg.shortName} fällt aus"
+            if (leg.cancelled) return i to "${leg.shortName} fällt aus"
         }
         val rides = parts.indices.filter { !parts[it].isWalk }
         for (k in 0 until rides.size - 1) {

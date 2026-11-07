@@ -172,7 +172,7 @@ class TripCompanionService : Service(), LocationListener {
         val state = TripCompanion.state.value
         val engine = progress ?: return
         val leg = route?.partialRoutes?.getOrNull(state.legIndex) ?: return
-        if (!state.running || !state.busEnabled || engine.arrived || leg.stations.any { it.canceled }) return
+        if (!state.running || !state.busEnabled || engine.arrived || leg.cancelled) return
         if (SystemClock.elapsedRealtime() - timestamp !in 0..10_000) return
         val index = when {
             bus.line == null -> busNames?.match(bus, leg)
@@ -223,7 +223,7 @@ class TripCompanionService : Service(), LocationListener {
         val state = TripCompanion.state.value
         if (!state.running || engine.arrived) return
         val leg = route?.partialRoutes?.getOrNull(state.legIndex) ?: return
-        if (leg.stations.any { it.canceled }) {
+        if (leg.cancelled) {
             speech.cancel()
             TripCompanion.mutableState.value = state.copy(message = "Fahrt oder Halt fällt aus · bitte Verbindung prüfen", locationReady = false, alighting = false)
             updateNotification()
