@@ -139,12 +139,21 @@ object BackendApi {
             put("variants", rules.variants.toString())
         }
         val req = Request.Builder().url(url("/v1/plan", params)).build()
-        val (plan, live) = call(req) { src ->
-            val first = src.readUtf8Line() ?: throw ApiException("Backend: leere Antwort")
-            // the live frame is optional: the stream ends after frame 1 when every board lookup failed
-            val second = runCatching { src.readUtf8Line() }.getOrNull()
-            Pm.note("backend frames ${first.length} + ${second?.length ?: 0} chars")
-            json.decodeFromString<BPlan>(first) to second?.let { runCatching { json.decodeFromString<BLive>(it) }.getOrNull() }
+        val (plan, live) = try {
+            call(req) { src ->
+                val first = src.readUtf8Line() ?: throw ApiException("Backend: leere Antwort")
+                // the live frame is optional: the stream ends after frame 1 when every board lookup failed
+                val second = runCatching { src.readUtf8Line() }.getOrNull()
+                Pm.note("backend frames ${first.length} + ${second?.length ?: 0} chars")
+                json.decodeFromString<BPlan>(first) to second?.let { runCatching { json.decodeFromString<BLive>(it) }.getOrNull() }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // A stalled stream (bad mobile link, a proxy holding the body) used to drop the search to the old stop
+            // pairs, one way per train. The timetable alone is one small JSON answer and usually still gets through.
+            Pm.note("backend stream failed (${e.message}), asking for the timetable only")
+            call(Request.Builder().url(url("/v1/plan/static", params)).build()) { src -> json.decodeFromString<BPlan>(src.readUtf8()) } to null
         }
         return toRoutes(plan, live, from.name, to.name)
     }
