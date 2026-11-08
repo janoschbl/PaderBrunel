@@ -24,13 +24,20 @@ Kotlin · Jetpack Compose · Material 3 Expressive · Rust
 
 </div>
 
-<table>
+<table width="100%">
 <tr>
-<td align="center"><img src="docs/media/compare-results.png" width="300" alt="Verbindungsliste: PaderSprinter mobil und Brunel"><br><sub>Verbindungen: Münster Hbf nach Paderborn Kasseler Tor, Montag 10:00</sub></td>
-<td align="center"><img src="docs/media/compare-detail.png" width="300" alt="Fahrtdetails: PaderSprinter mobil und Brunel"><br><sub>Dieselbe Fahrt im Detail (RE7, ICE, Bus 480)</sub></td>
-<td align="center"><img src="docs/media/compare-board.png" width="300" alt="Abfahrtstafel Paderborn Hbf: PaderSprinter mobil und Brunel"><br><sub>Abfahrten: Haltestelle Paderborn Hbf</sub></td>
+<td width="33%" align="center"><img src="docs/media/compare-results.png" width="100%" alt="Verbindungsliste: PaderSprinter mobil und Brunel"></td>
+<td width="33%" align="center"><img src="docs/media/compare-detail.png" width="100%" alt="Fahrtdetails: PaderSprinter mobil und Brunel"></td>
+<td width="33%" align="center"><img src="docs/media/compare-board.png" width="100%" alt="Abfahrtstafel Paderborn Hbf: PaderSprinter mobil und Brunel"></td>
+</tr>
+<tr>
+<td width="33%" align="center"><sub>Verbindungen</sub></td>
+<td width="33%" align="center"><sub>Fahrtdetails</sub></td>
+<td width="33%" align="center"><sub>Abfahrten</sub></td>
 </tr>
 </table>
+
+<div align="center"><sub>Münster Hbf nach Paderborn Kasseler Tor, Montag 10:00, und die Haltestelle Paderborn Hbf</sub></div>
 
 ---
 
