@@ -214,6 +214,7 @@ object BackendApi {
                     typeName = typeName(l.mode),
                     lineName = if (walk) null else listOfNotNull(typeName(l.mode), l.line.takeIf { s -> s.isNotEmpty() }).joinToString(" "),
                     shortName = l.line.takeIf { s -> !walk && s.isNotEmpty() },
+                    trainLabel = if (l.mode == "HIGHSPEED_RAIL") "ICE" else null,
                     lineDirection = l.to.takeIf { s -> !walk && s.isNotEmpty() },
                     transferTime = if (walk) ((l.arr - l.dep + 59) / 60).toInt() else null,
                     departureDate = iso(l.dep), arrivalDate = iso(l.arr),

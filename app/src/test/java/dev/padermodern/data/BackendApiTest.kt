@@ -49,4 +49,17 @@ class BackendApiTest {
         assertEquals(plan.itins.size, routes.size)
         assertTrue(routes[i].partialRoutes[k].stations.first().canceled)
     }
+
+    @Test fun highSpeedTrainShowsIceButKeepsItsLineForMatching() {
+        val i = plan.itins.indexOfFirst { it.legs.any { l -> l.mode != "WALK" } }
+        val k = plan.itins[i].legs.indexOfFirst { it.mode != "WALK" }
+        val ice = plan.copy(itins = plan.itins.mapIndexed { n, it ->
+            if (n != i) it else it.copy(legs = it.legs.mapIndexed { m, l -> if (m == k) l.copy(mode = "HIGHSPEED_RAIL", line = "51") else l })
+        })
+        val leg = BackendApi.toRoutes(ice, null)[i].partialRoutes[k]
+        assertEquals("51", leg.shortName)
+        assertEquals("ICE 51", leg.badge)
+        val regional = BackendApi.toRoutes(plan, null)[i].partialRoutes[k]
+        assertEquals(regional.shortName, regional.badge)
+    }
 }

@@ -33,6 +33,7 @@ import dev.padermodern.data.decodePolyline
 import dev.padermodern.data.durationLabel
 import dev.padermodern.data.euro
 import dev.padermodern.data.hhmm
+import dev.padermodern.data.positioned
 import dev.padermodern.ui.AppViewModel
 import dev.padermodern.ui.components.MapLine
 import dev.padermodern.ui.components.StatusBarScrim
@@ -48,7 +49,7 @@ fun rememberTripLines(r: Route): List<MapLine> {
     return remember(r.key, colors) {
         r.partialRoutes.mapIndexed { i, leg ->
             val pts = leg.encodedPath?.let { decodePolyline(it) } ?: leg.stations.map { it.latitude to it.longitude }
-            MapLine(pts, colors[i])
+            MapLine(pts.positioned(), colors[i])
         }
     }
 }
@@ -90,7 +91,7 @@ fun TripDetailScreen(vm: AppViewModel, onBack: () -> Unit, onStation: (Station) 
     val endpoints = listOfNotNull(
         r.partialRoutes.firstOrNull()?.stations?.firstOrNull(),
         r.partialRoutes.lastOrNull()?.stations?.lastOrNull(),
-    )
+    ).filter { listOf(it.latitude to it.longitude).positioned().isNotEmpty() }
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {

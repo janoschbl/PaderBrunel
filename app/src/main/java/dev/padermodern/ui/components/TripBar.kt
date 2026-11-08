@@ -40,7 +40,7 @@ fun TripBar(route: Route, status: TripStatus, onClick: () -> Unit, modifier: Mod
     ) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             if (leg != null && !leg.isWalk) {
-                LineBadge(leg.shortName, leg.mode())
+                LineBadge(leg.badge, leg.mode())
                 Spacer(Modifier.width(12.dp))
             }
             Column(Modifier.weight(1f)) {

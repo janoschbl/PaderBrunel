@@ -188,7 +188,7 @@ private fun RideBlock(leg: PartialRoute, topLine: RailLine, bottomLine: RailLine
             TimelineRail(RailLine.Solid, RailLine.Solid, color)
             Column(Modifier.weight(1f).padding(start = 8.dp, top = 8.dp, bottom = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    LineBadge(leg.shortName, leg.mode(), large = true)
+                    LineBadge(leg.badge, leg.mode(), large = true)
                     Spacer(Modifier.width(10.dp))
                     Text(
                         leg.lineDirection?.let { "nach $it" } ?: leg.lineName.orEmpty(),

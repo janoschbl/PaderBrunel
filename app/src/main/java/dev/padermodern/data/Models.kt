@@ -62,6 +62,8 @@ data class PartialRoute(
     val typeName: String? = null,
     val lineName: String? = null,
     val shortName: String? = null,
+    /** "ICE" for a high-speed train, whose line number alone ("51") says nothing; [shortName] stays the matching key. */
+    val trainLabel: String? = null,
     val lineDirection: String? = null,
     val vehicleRideType: String? = null,
     val encodedPath: String? = null,
@@ -74,6 +76,9 @@ data class PartialRoute(
     val expectedArrivalDate: String? = null,
 ) {
     val isWalk: Boolean get() = clazz == "walkway" || type == 100
+
+    /** What the badge and the texts show: "ICE 51" for a high-speed train, else the line. */
+    val badge: String? get() = shortName?.let { n -> trainLabel?.takeUnless { n.startsWith(it, true) }?.let { "$it $n" } ?: n }
 
     val walkMinutes: Int get() = if (isWalk) transferTime ?: 0 else 0
 

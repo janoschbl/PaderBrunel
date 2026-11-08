@@ -241,7 +241,7 @@ private fun SwapLegSheet(route: Route, legs: List<Int>, onPick: (Int) -> Unit, o
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onPick(i) }.testTag("swap_leg"),
                 ) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        LineBadge(leg.shortName, leg.mode())
+                        LineBadge(leg.badge, leg.mode())
                         Spacer(Modifier.width(12.dp))
                         Column {
                             val late = delayMinutes(leg.departureDate, leg.expectedDepartureDate)?.takeIf { it > 0 }?.let { " (+$it)" }.orEmpty()

@@ -38,6 +38,9 @@ fun durationLabel(start: String?, end: String?): String {
 
 fun euro(v: Double): String = String.format(java.util.Locale.GERMANY, "%.2f €", v)
 
+/** Stops the local timetable could not place carry (0, 0); a map must not zoom out to include them. */
+fun List<Pair<Double, Double>>.positioned() = filter { (la, lo) -> la.isFinite() && lo.isFinite() && (la != 0.0 || lo != 0.0) }
+
 fun decodePolyline(encoded: String): List<Pair<Double, Double>> {
     val out = ArrayList<Pair<Double, Double>>()
     var index = 0

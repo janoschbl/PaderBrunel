@@ -28,6 +28,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.padermodern.data.Station
+import dev.padermodern.data.positioned
 import dev.padermodern.ui.theme.LocalTransitColors
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.DelayedMapListener
@@ -257,10 +258,10 @@ fun TransitMap(
     }
     LaunchedEffect(fitToContent, lines, stops) {
         if (!fitToContent) return@LaunchedEffect
-        val pts = lines.flatMap { it.points } + stops.map { it.latitude to it.longitude }
+        val pts = (lines.flatMap { it.points } + stops.map { it.latitude to it.longitude }).positioned()
         if (pts.size < 2) return@LaunchedEffect
         val box = BoundingBox.fromGeoPoints(pts.map { GeoPoint(it.first, it.second) })
-        mapView.post { mapView.zoomToBoundingBox(box, false, (48 * ctx.resources.displayMetrics.density).toInt()) }
+        mapView.post { mapView.zoomToBoundingBox(box, false, (72 * ctx.resources.displayMetrics.density).toInt()) }
     }
     LaunchedEffect(recenter) {
         if (recenter == 0) return@LaunchedEffect

@@ -404,7 +404,7 @@ fun RouteCard(r: Route, saved: Boolean, fastest: Boolean, modifier: Modifier = M
                             if (leg.walkMinutes >= 3) {
                                 Icon(Icons.AutoMirrored.Rounded.DirectionsWalk, "Fußweg", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                        } else LineBadge(leg.shortName, leg.mode())
+                        } else LineBadge(leg.badge, leg.mode())
                     }
                     if (canceled) Text("  Fällt aus", color = tc.late, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
                 }

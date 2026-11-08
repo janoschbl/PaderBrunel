@@ -31,7 +31,7 @@ object LiveTrip {
     private fun brokenTransfer(r: Route): Pair<Int, String>? {
         val parts = r.partialRoutes
         parts.forEachIndexed { i, leg ->
-            if (leg.cancelled) return i to "${leg.shortName} fällt aus"
+            if (leg.cancelled) return i to "${leg.badge} fällt aus"
         }
         val rides = parts.indices.filter { !parts[it].isWalk }
         for (k in 0 until rides.size - 1) {
@@ -40,7 +40,7 @@ object LiveTrip {
             val arr = parts[a].effArrival() ?: continue
             val dep = parts[b].effDeparture() ?: continue
             val walk = (a + 1 until b).sumOf { parts[it].walkMinutes }
-            if (mins(arr, dep) - walk < 0) return b to "Anschluss ${parts[b].shortName} nicht mehr erreichbar"
+            if (mins(arr, dep) - walk < 0) return b to "Anschluss ${parts[b].badge} nicht mehr erreichbar"
         }
         return null
     }
@@ -64,7 +64,7 @@ object LiveTrip {
                 "Los zur Haltestelle ${leg.stations.first().name}"
             } else "Abfahrt in ${m.coerceAtLeast(0)} min"
             val late = delayMinutes(leg.departureDate, leg.expectedDepartureDate)?.takeIf { it > 0 }?.let { " (+$it)" }.orEmpty()
-            return make(Phase.Upcoming, firstRide, head, "${leg.shortName} ${leg.lineDirection?.let { "nach $it" }.orEmpty()}$platform · ${firstDep.hhmm()}$late".trim())
+            return make(Phase.Upcoming, firstRide, head, "${leg.badge} ${leg.lineDirection?.let { "nach $it" }.orEmpty()}$platform · ${firstDep.hhmm()}$late".trim())
         }
         for ((k, idx) in rides.withIndex()) {
             val leg = parts[idx]
@@ -74,11 +74,11 @@ object LiveTrip {
                 val next = leg.stations.firstOrNull { (it.effective() ?: dep).isAfter(now) } ?: leg.stations.last()
                 val isFinal = next == leg.stations.last()
                 val platform = next.platform?.let { " · $it" }.orEmpty()
-                val head = "Unterwegs mit ${leg.shortName}"
+                val head = "Unterwegs mit ${leg.badge}"
                 val detail = if (isFinal) {
                     val follow = rides.getOrNull(k + 1)?.let { parts[it] }
                     "Ausstieg ${next.name} um ${next.effective().hhmm()}$platform" +
-                        (follow?.let { " · weiter mit ${it.shortName}" } ?: "")
+                        (follow?.let { " · weiter mit ${it.badge}" } ?: "")
                 } else "Nächster Halt ${next.name} · ${next.effective().hhmm()}"
                 return make(Phase.Riding, idx, head, detail)
             }
@@ -89,7 +89,7 @@ object LiveTrip {
                     val platform = nextRide.stations.first().platform?.let { " · $it" }.orEmpty()
                     return make(
                         Phase.Transfer, rides[k + 1], "Umstieg in ${leg.stations.last().name}",
-                        "${nextRide.shortName} ${nextRide.lineDirection?.let { "nach $it" }.orEmpty()}$platform · in ${mins(now, nextDep).coerceAtLeast(0)} min (${nextDep.hhmm()})".trim(),
+                        "${nextRide.badge} ${nextRide.lineDirection?.let { "nach $it" }.orEmpty()}$platform · in ${mins(now, nextDep).coerceAtLeast(0)} min (${nextDep.hhmm()})".trim(),
                     )
                 }
             }
