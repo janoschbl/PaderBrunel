@@ -4,7 +4,7 @@
 
 # PaderBrunel
 
-**Ein moderner Android-Client für den PaderSprinter-Fahrplan, mit eigenem Backend**
+**Schnellere, schönere und klügere Verbindungen für Paderborn. Ein Ersatz für die PaderSprinter-App.**
 
 Kotlin · Jetpack Compose · Material 3 Expressive · Rust
 
@@ -37,23 +37,47 @@ Kotlin · Jetpack Compose · Material 3 Expressive · Rust
 </tr>
 </table>
 
-<div align="center"><sub>Münster Hbf nach Paderborn Kasseler Tor, Montag 10:00, und die Haltestelle Paderborn Hbf</sub></div>
+---
+
+## Warum Brunel?
+
+**Bessere Verbindungen.** Der Suchalgorithmus ist der Kern der App. Er bietet Busverbindungen an, die Sinn ergeben, mit mehr Varianten und mehr Einstellmöglichkeiten:
+
+- **Mindest-Umstiegszeit** (0, 3, 5, 8 oder 10 Minuten). Knappere Verbindungen verschwinden aus der Liste.
+- **Mehrere Wege zu jedem Zug**, zeitversetzt, damit du wählen kannst, wann du losgehst („Mehr Varianten“), oder mehr Züge mit je dem besten Weg („Mehr Züge“).
+- **Suchstil** Schnell, Ausgewogen oder Entspannt und eine **Höchstzahl an Umstiegen**.
+- Die Liste zeigt, wenn es so viele gibt, mindestens acht Verbindungen.
+
+**Schneller und schöner.** Die Oberfläche ist komplett in Jetpack Compose gebaut. Die erste Liste kommt sofort aus dem Fahrplan auf dem Gerät, danach folgen die Live-Daten.
+
+**Alle Live-Daten bleiben.** Verspätungen und Ausfälle in Echtzeit (auch per Push), Abfahrten, Karte, Störungen und Liniennetzpläne. Brunel kann dasselbe wie die PaderSprinter-App, nur ohne Ticketkauf.
+
+
+## Beispiele aus Paderborn
+
+Zwei echte Suchen auf demselben Handy, in allen drei Apps. Der DB Navigator und Brunel waren auf 10 Minuten Mindest-Umstiegszeit gestellt. Jede der beiden anderen Apps hat in je einem Beispiel eine Schwäche.
+
+**Heinz-Nixdorf-Ring nach Soest, Samstag 19:00.** Der DB Navigator zeigt als erste Fahrt 19:41 mit Ankunft 20:36. Die Fahrt um 19:00 mit Bus 6 und RB89 (13 Minuten Umstieg, Ankunft 19:55) fehlt dort. Brunel und PaderSprinter zeigen sie.
+
+<img src="docs/media/example-hnf.png" width="100%" alt="Heinz-Nixdorf-Ring nach Soest: PaderSprinter mobil, DB Navigator und Brunel">
+
+**Triftweg (Wewer) nach Hamm Hbf, Montag 14:30.** PaderSprinter bietet viermal denselben Bus 16 mit nur 7 Minuten Umstieg zum RB89 an. Der DB Navigator und Brunel finden Bus 2 mit 13 Minuten und weitere Verbindungen.
+
+<img src="docs/media/example-triftweg.png" width="100%" alt="Triftweg nach Hamm: PaderSprinter mobil, DB Navigator und Brunel">
+
+<sub>Stand der Aufnahmen: 8. November 2026. Die Verbindungen gelten für den jeweils genannten Tag.</sub>
 
 ---
 
-Die App heißt Brunel und ist ein Ersatz für die PaderSprinter-App. Die Oberfläche ist deutsch. Anders als die Original-App fragt Brunel für Verbindungen nicht mehr nur den ivanto-Server, sondern ein eigenes Backend in Rust (`backend/`), das mehrere Datenquellen zusammenführt, und rechnet zusätzlich auf dem Gerät.
+## Über das Projekt
 
-## Funktionen
+Brunel ist ein Hobbyprojekt, das ich hauptsächlich für mich gebaut habe. Ich finde die PaderSprinter-App nicht schön und langsam, und ich wollte genau deshalb eine bessere.
 
-- **Abfahrten.** Live-Abfahrten an den Haltestellen in deiner Nähe, Verspätungen kommen per Push.
-- **Verbindungen.** Suche von Haltestelle oder Adresse zu Haltestelle oder Adresse, sortiert nach Echtzeit. Ein verspäteter Zug zählt zu der Zeit, zu der er wirklich fährt. Die erste Liste kommt sofort aus dem Fahrplan auf dem Gerät, danach folgen die Live-Daten.
-- **Fahrtdetails.** Karte mit dem echten Streckenverlauf jeder Fahrt, Gleise, Zwischenhalte. ICE-Fahrten heißen „ICE 51“ statt nur „51“.
-- **Meine Fahrt.** Gespeicherte Fahrten mit Live-Ansicht, Warnung bei geplatzten Anschlüssen und einer Taste, mit der du jede noch nicht begonnene Fahrt gegen eine andere Verbindung tauschst.
-- **Fahrtbegleitung.** Gesprochene Ansagen über Kopfhörer während der Fahrt.
-- **Karte.** Haltestellen auf einer OpenStreetMap-Karte mit den Abfahrten jedes Steigs.
-- **Störungen.** Störungen nach Meldung gruppiert, dazu die Liniennetzpläne als PDF.
+Ich selbst bin Backend-Entwickler und bin nicht wirklich gut, wenn es um UI/UX geht. Den Routing-Algorithmus habe ich selbst entworfen. Der Rest, vor allem UI/UX, ist mit Claude gebaut. Das sage ich offen. Ich baue es zum Spaß, weil ich diese App haben wollte.
 
-## Wie es zusammenhängt
+---
+
+## Wie es technisch zusammenhängt
 
 ```mermaid
 flowchart LR
@@ -83,15 +107,15 @@ flowchart LR
 
 **ivanto SRS** (der Server der Original-App). Haltestellensuche, Haltestellen in der Nähe, Karte, Abfahrtstafeln, Störungen, Liniennetzpläne und die Bluetooth-Daten für die Fahrtbegleitung kommen weiter von dort, mit den Kennungen der Original-App (`SrsApi.kt`). Ticketkauf, Login und Push der Original-App werden nicht benutzt.
 
-## Die Suche im Detail
+### Die Suche im Detail
 
 - **Verbindungssuche** (`TripSearch.kt`) fragt das eigene Backend einmal, vom echten Start zum echten Ziel, mit der kleinsten Umsteigezeit und der Höchstzahl an Umstiegen aus den Einstellungen. Fällt das Backend aus, fällt die App auf Paare nahegelegener Haltestellen zurück.
-- **Rangfolge.** Ein Zug bleibt nur, wenn sein bester Weg nicht von einem anderen geschlagen wird (fährt später und kommt nicht später an, kommt deutlich früher an für ein paar Minuten früheres Losfahren, oder hat weniger Umstiege ohne Nachteil). Die Liste zeigt, wenn es so viele gibt, mindestens acht Verbindungen, entweder bis zu vier Wege pro Zug („Mehr Varianten“) oder mehr Züge mit dem jeweils besten Weg („Mehr Züge“).
+- **Rangfolge.** Ein Zug bleibt nur, wenn sein bester Weg nicht von einem anderen geschlagen wird (fährt später und kommt nicht später an, kommt deutlich früher an für ein paar Minuten früheres Losfahren, oder hat weniger Umstiege ohne Nachteil).
 - **Zwischenspeicher.** Antworten werden auf dem Gerät zwischengespeichert (im Speicher 15 Minuten, auf der Platte bis zu einem Tag), damit eine wiederholte Suche sofort da ist. Strecken, die du um diese Zeit oft suchst, lädt die App vorab.
 - **Gespeicherte Fahrten** (`LiveTrip.kt`) aktualisieren die Echtzeitdaten pro Teilstrecke und melden Anschlüsse, die nicht mehr klappen.
-- **Einstellungen** unter Profil, Einstellungen: Suchstil, kleinste Umsteigezeit, Höchstzahl der Umstiege.
+- **Einstellungen** unter Profil, Einstellungen: Suchstil, kleinste Umsteigezeit, Höchstzahl der Umstiege, Ergebnisliste.
 
-## Projektaufbau
+### Projektaufbau
 
 - `app/` die Android-App und ihre Tests.
 - `backend/` das Rust-Backend und seine Tests.
@@ -99,7 +123,7 @@ flowchart LR
 - `docs/` Pläne, der Routing-Benchmark und die Bilder und Videos dieser README.
 - `tools/` API-Prüfungen, UI-Testhelfer und der Benchmark.
 
-## Bauen
+### Bauen
 
 App:
 
@@ -121,9 +145,11 @@ BIND=127.0.0.1:8099 cargo run --release
 
 Für einen Server mit älterer glibc als dein Rechner baust du statisch: `cargo build --release --target x86_64-unknown-linux-musl`.
 
-## Routing-Benchmark
+### Routing-Benchmark
 
 `tools/bench/run.sh` führt 208 Suchen (Paderborn, die Region darum, Köln; Werktag, Samstag, Sonntag; morgens bis nachts; Abfahrt und Ankunft; 3, 5 und 8 Minuten Umsteigezeit) durch ein lokales Backend und die Rangfolge der App. Die Router-Antworten werden auf der Platte aufgezeichnet und wieder abgespielt, ein erneuter Lauf kostet Transitous also nichts, neue Anfragen gehen im Sekundentakt raus. `tools/bench/reference.py` holt pro Suche die eigene Antwort des Routers, `tools/bench/report.py` schreibt `docs/bench-routing.html`.
+
+---
 
 ## Datenquellen und Lizenzen
 
@@ -139,4 +165,4 @@ Für einen Server mit älterer glibc als dein Rechner baust du statisch: `cargo 
 
 ## Hinweis
 
-PaderBrunel ist ein inoffizielles Projekt. Es steht in keiner Verbindung zu PaderSprinter, dem Nahverkehrsverbund Paderborn/Höxter, ivanto, Transitous oder dem VRR.
+PaderBrunel ist ein inoffizielles Projekt. Es steht in keiner Verbindung zu PaderSprinter, dem Nahverkehrsverbund Paderborn/Höxter, ivanto, Transitous, dem VRR oder der DB.
