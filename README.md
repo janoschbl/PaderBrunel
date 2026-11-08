@@ -23,6 +23,15 @@ Kotlin · Jetpack Compose · Material 3 Expressive
 
 </div>
 
+### Side by side
+
+<table>
+<tr>
+<td align="center"><img src="docs/media/compare-results.png" width="420" alt="Connection list: PaderSprinter mobil and Brunel"><br><sub>Verbindungen: Münster Hbf to Paderborn Kasseler Tor, Monday 10:00</sub></td>
+<td align="center"><img src="docs/media/compare-board.png" width="420" alt="Stop board of Paderborn Hbf: PaderSprinter mobil and Brunel"><br><sub>Abfahrten: stop board of Paderborn Hbf</sub></td>
+</tr>
+</table>
+
 ---
 
 The app is called Brunel. It talks to the ivanto SRS backend of PaderSprinter, the same one the original app uses, and the UI is German.
