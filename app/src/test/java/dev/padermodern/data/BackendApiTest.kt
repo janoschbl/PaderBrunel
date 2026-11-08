@@ -62,4 +62,16 @@ class BackendApiTest {
         val regional = BackendApi.toRoutes(plan, null)[i].partialRoutes[k]
         assertEquals(regional.shortName, regional.badge)
     }
+
+    @Test fun rideTrackBecomesTheMapPathAndWalksStayStraight() {
+        val i = plan.itins.indexOfFirst { it.legs.any { l -> l.mode != "WALK" } }
+        val k = plan.itins[i].legs.indexOfFirst { it.mode != "WALK" }
+        val track = "_p~iF~ps|U_ulLnnqC_mqNvxq`@"   // the polyline from Google's documentation: three points
+        val withTrack = plan.copy(itins = plan.itins.mapIndexed { n, it ->
+            if (n != i) it else it.copy(legs = it.legs.mapIndexed { m, l -> if (m == k) l.copy(geom = track) else l })
+        })
+        val routes = BackendApi.toRoutes(withTrack, null)
+        assertEquals(3, decodePolyline(routes[i].partialRoutes[k].encodedPath!!).size)
+        assertTrue(BackendApi.toRoutes(plan, null).flatMap { it.partialRoutes }.all { it.encodedPath == null })
+    }
 }

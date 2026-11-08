@@ -21,6 +21,9 @@ pub struct Leg {
     /// `[lat, lon]` of start and end, five decimals
     pub from_pos: [f64; 2],
     pub to_pos: [f64; 2],
+    /// the track of a ride as an encoded polyline (precision 5), thinned to about 25 m; empty for walks
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub geom: String,
     pub dep: i64,
     pub arr: i64,
     pub via: Vec<Via>,
@@ -64,6 +67,76 @@ fn pos(p: &Value) -> [f64; 2] {
     [r(p["lat"].as_f64().unwrap_or(0.0)), r(p["lon"].as_f64().unwrap_or(0.0))]
 }
 
+/// Decodes an encoded polyline (`precision` digits) into `[lat, lon]` pairs.
+fn decode_polyline(enc: &str, precision: i32) -> Vec<[f64; 2]> {
+    let f = 10f64.powi(precision);
+    let b = enc.as_bytes();
+    let (mut i, mut lat, mut lon) = (0usize, 0i64, 0i64);
+    let mut out = Vec::new();
+    let next = |i: &mut usize| -> Option<i64> {
+        let (mut r, mut shift) = (0i64, 0);
+        loop {
+            let c = *b.get(*i)? as i64 - 63; *i += 1;
+            r |= (c & 0x1f) << shift; shift += 5;
+            if c < 0x20 { break; }
+        }
+        Some(if r & 1 != 0 { !(r >> 1) } else { r >> 1 })
+    };
+    while i < b.len() {
+        let (Some(a), Some(o)) = (next(&mut i), next(&mut i)) else { break };
+        lat += a; lon += o;
+        out.push([lat as f64 / f, lon as f64 / f]);
+    }
+    out
+}
+
+fn encode_polyline(pts: &[[f64; 2]]) -> String {
+    let (mut out, mut plat, mut plon) = (String::new(), 0i64, 0i64);
+    let mut put = |mut v: i64| {
+        v = if v < 0 { !(v << 1) } else { v << 1 };
+        while v >= 0x20 { out.push((((v & 0x1f) | 0x20) as u8 + 63) as char); v >>= 5; }
+        out.push((v as u8 + 63) as char);
+    };
+    for p in pts {
+        let (la, lo) = ((p[0] * 1e5).round() as i64, (p[1] * 1e5).round() as i64);
+        put(la - plat); put(lo - plon);
+        plat = la; plon = lo;
+    }
+    out
+}
+
+/// Douglas-Peucker on a flat metre grid around the start (good to a few metres over a regional leg).
+fn thin(pts: &[[f64; 2]], tol: f64) -> Vec<[f64; 2]> {
+    if pts.len() < 3 { return pts.to_vec(); }
+    let k = pts[0][0].to_radians().cos();
+    let xy: Vec<(f64, f64)> = pts.iter().map(|p| (p[1] * 111_320.0 * k, p[0] * 110_574.0)).collect();
+    let mut keep = vec![false; pts.len()];
+    keep[0] = true; keep[pts.len() - 1] = true;
+    let mut stack = vec![(0usize, pts.len() - 1)];
+    while let Some((a, z)) = stack.pop() {
+        let (ax, ay) = xy[a]; let (zx, zy) = xy[z];
+        let (dx, dy) = (zx - ax, zy - ay);
+        let len = (dx * dx + dy * dy).sqrt();
+        let (mut worst, mut at) = (0.0, 0usize);
+        for i in a + 1..z {
+            let d = if len == 0.0 { ((xy[i].0 - ax).powi(2) + (xy[i].1 - ay).powi(2)).sqrt() }
+                    else { ((xy[i].0 - ax) * dy - (xy[i].1 - ay) * dx).abs() / len };
+            if d > worst { worst = d; at = i; }
+        }
+        if worst > tol { keep[at] = true; stack.push((a, at)); stack.push((at, z)); }
+    }
+    pts.iter().zip(keep).filter(|(_, k)| *k).map(|(p, _)| *p).collect()
+}
+
+/// The ride's track from Transitous' `legGeometry`, thinned and re-encoded at precision 5 (what the app decodes).
+fn thin_geometry(g: &Value) -> String {
+    let Some(enc) = g["points"].as_str() else { return String::new() };
+    let prec = g["precision"].as_i64().unwrap_or(6) as i32;
+    let pts = decode_polyline(enc, prec);
+    if pts.len() < 2 { return String::new(); }
+    encode_polyline(&thin(&pts, 25.0))
+}
+
 pub fn parse_transitous(v: &Value, at: i64) -> Result<Plan, String> {
     let its = v["itineraries"].as_array().ok_or_else(|| v["error"].as_str().unwrap_or("no itineraries").to_string())?;
     let itins = its.iter().filter_map(|it| {
@@ -77,6 +150,7 @@ pub fn parse_transitous(v: &Value, at: i64) -> Result<Plan, String> {
             to_id: s(&l["to"]["stopId"]),
             from_pos: pos(&l["from"]),
             to_pos: pos(&l["to"]),
+            geom: if s(&l["mode"]) == "WALK" { String::new() } else { thin_geometry(&l["legGeometry"]) },
             dep: ts(&l["scheduledStartTime"]).or_else(|| ts(&l["startTime"]))?,
             arr: ts(&l["scheduledEndTime"]).or_else(|| ts(&l["endTime"]))?,
             via: l["intermediateStops"].as_array().map(|a| a.iter().filter_map(|x| Some(Via {
@@ -155,7 +229,7 @@ pub fn drop_hops(it: &mut Itin, transfer: i64) -> bool {
             };
             let leg = Leg {
                 mode: "WALK".into(), line: String::new(), to: String::new(), from_name, to_name: next.from_name.clone(), from_id,
-                to_id: next.from_id.clone(), from_pos, to_pos: next.from_pos, dep, arr, via: vec![],
+                to_id: next.from_id.clone(), from_pos, to_pos: next.from_pos, geom: String::new(), dep, arr, via: vec![],
             };
             it.legs.splice(first..j, [leg]);
             it.dep = it.legs[0].dep;
@@ -300,8 +374,34 @@ mod tests {
         assert!(p.itins.iter().flat_map(|i| &i.legs).any(|l| !l.via.is_empty()));
     }
 
+    #[test] fn track_is_thinned_and_survives_the_round_trip() {
+        // 200 points on a gentle curve, 6 digits like Transitous
+        let pts: Vec<[f64; 2]> = (0..200).map(|i| { let x = i as f64 / 199.0; [51.70 + 0.2 * x, 8.0 + 0.7 * x + 0.02 * (x * 6.0).sin()] }).collect();
+        let long = {
+            let (mut out, mut pl, mut po) = (String::new(), 0i64, 0i64);
+            for p in &pts { let (a, o) = ((p[0] * 1e6).round() as i64, (p[1] * 1e6).round() as i64);
+                for v in [a - pl, o - po] { let mut v = if v < 0 { !(v << 1) } else { v << 1 }; while v >= 0x20 { out.push((((v & 0x1f) | 0x20) as u8 + 63) as char); v >>= 5; } out.push((v as u8 + 63) as char); }
+                pl = a; po = o; }
+            out
+        };
+        let g = serde_json::json!({ "points": long, "precision": 6, "length": 200 });
+        let thin = decode_polyline(&thin_geometry(&g), 5);
+        assert!(thin.len() < 60, "{} points kept", thin.len());
+        assert_eq!(thin.first().unwrap(), &[51.70, 8.0]);
+        // every original point lies within 30 m of the thinned line
+        let near = |p: &[f64; 2]| thin.windows(2).map(|w| {
+            let k = p[0].to_radians().cos();
+            let (ax, ay, bx, by, px, py) = (w[0][1] * 111_320.0 * k, w[0][0] * 110_574.0, w[1][1] * 111_320.0 * k, w[1][0] * 110_574.0, p[1] * 111_320.0 * k, p[0] * 110_574.0);
+            let (dx, dy) = (bx - ax, by - ay);
+            let t = (((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
+            ((px - ax - t * dx).powi(2) + (py - ay - t * dy).powi(2)).sqrt()
+        }).fold(f64::MAX, f64::min);
+        assert!(pts.iter().all(|p| near(p) < 30.0));
+        assert_eq!(thin_geometry(&serde_json::json!({})), "");
+    }
+
     fn ride(line: &str, from: &str, to: &str, dep: i64, arr: i64) -> Leg {
-        Leg { mode: "REGIONAL_RAIL".into(), line: line.into(), to: "".into(), from_name: "".into(), to_name: "".into(), from_id: from.into(), to_id: to.into(), from_pos: [0.0; 2], to_pos: [0.0; 2], dep, arr, via: vec![] }
+        Leg { mode: "REGIONAL_RAIL".into(), line: line.into(), to: "".into(), from_name: "".into(), to_name: "".into(), from_id: from.into(), to_id: to.into(), from_pos: [0.0; 2], to_pos: [0.0; 2], geom: String::new(), dep, arr, via: vec![] }
     }
     fn t(s: &str) -> i64 { chrono::DateTime::parse_from_rfc3339(s).unwrap().timestamp() }
 

@@ -41,6 +41,8 @@ data class BLeg(
     val to_id: String = "",
     val from_pos: List<Double> = emptyList(),
     val to_pos: List<Double> = emptyList(),
+    /** the ride's track as an encoded polyline (precision 5), empty for walks and older backends */
+    val geom: String = "",
     val dep: Long = 0,
     val arr: Long = 0,
     val via: List<BVia> = emptyList(),
@@ -214,6 +216,7 @@ object BackendApi {
                     typeName = typeName(l.mode),
                     lineName = if (walk) null else listOfNotNull(typeName(l.mode), l.line.takeIf { s -> s.isNotEmpty() }).joinToString(" "),
                     shortName = l.line.takeIf { s -> !walk && s.isNotEmpty() },
+                    encodedPath = l.geom.takeIf { s -> s.isNotEmpty() },
                     trainLabel = if (l.mode == "HIGHSPEED_RAIL") "ICE" else null,
                     lineDirection = l.to.takeIf { s -> !walk && s.isNotEmpty() },
                     transferTime = if (walk) ((l.arr - l.dep + 59) / 60).toInt() else null,
