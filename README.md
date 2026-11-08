@@ -28,7 +28,10 @@ Kotlin · Jetpack Compose · Material 3 Expressive
 <table>
 <tr>
 <td align="center"><img src="docs/media/compare-results.png" width="420" alt="Connection list: PaderSprinter mobil and Brunel"><br><sub>Verbindungen: Münster Hbf to Paderborn Kasseler Tor, Monday 10:00</sub></td>
-<td align="center"><img src="docs/media/compare-board.png" width="420" alt="Stop board of Paderborn Hbf: PaderSprinter mobil and Brunel"><br><sub>Abfahrten: stop board of Paderborn Hbf</sub></td>
+<td align="center"><img src="docs/media/compare-detail.png" width="420" alt="Trip details: PaderSprinter mobil and Brunel"><br><sub>The same trip in detail (RE7, ICE, bus 480)</sub></td>
+</tr>
+<tr>
+<td align="center" colspan="2"><img src="docs/media/compare-board.png" width="420" alt="Stop board of Paderborn Hbf: PaderSprinter mobil and Brunel"><br><sub>Abfahrten: stop board of Paderborn Hbf</sub></td>
 </tr>
 </table>
 
