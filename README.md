@@ -15,6 +15,16 @@ Kotlin · Jetpack Compose · Material 3 Expressive
 
 ---
 
+<div align="center">
+
+<img src="docs/media/brunel-vs-padersprinter.gif" width="480" alt="Brunel and PaderSprinter mobil searching Münster Hbf to Paderborn Kasseler Tor side by side">
+
+<sub>Same phone, same route (Münster Hbf to Paderborn Kasseler Tor, Monday 10:00), one run each, started on the same tap. Brunel shows the on-device timetable first and reconciles with live data right after. <a href="docs/media/brunel-vs-padersprinter.mp4">Full video</a></sub>
+
+</div>
+
+---
+
 The app is called Brunel. It talks to the ivanto SRS backend of PaderSprinter, the same one the original app uses, and the UI is German.
 
 ## Features
