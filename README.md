@@ -1,15 +1,16 @@
 <div align="center">
 
-<img src="assets/icon.svg" width="96" height="96" alt="Brunel icon">
+<img src="assets/icon.svg" width="96" height="96" alt="Brunel-Icon">
 
 # PaderBrunel
 
-**A modern Android client for the PaderSprinter timetable**
+**Ein moderner Android-Client für den PaderSprinter-Fahrplan, mit eigenem Backend**
 
-Kotlin · Jetpack Compose · Material 3 Expressive
+Kotlin · Jetpack Compose · Material 3 Expressive · Rust
 
 ![Android 12+](https://img.shields.io/badge/Android-12%2B-3DDC84?logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Compose-7F52FF?logo=kotlin&logoColor=white)
+![Rust](https://img.shields.io/badge/Backend-Rust-000000?logo=rust&logoColor=white)
 
 </div>
 
@@ -17,71 +18,118 @@ Kotlin · Jetpack Compose · Material 3 Expressive
 
 <div align="center">
 
-<img src="docs/media/brunel-vs-padersprinter.gif" width="480" alt="Brunel and PaderSprinter mobil searching Münster Hbf to Paderborn Kasseler Tor side by side">
+<img src="docs/media/brunel-vs-padersprinter.gif" width="480" alt="Brunel und PaderSprinter mobil bei der Suche Münster Hbf nach Paderborn Kasseler Tor, nebeneinander">
 
-<sub>Same phone, same route (Münster Hbf to Paderborn Kasseler Tor, Monday 10:00), one run each, started on the same tap. Brunel shows the on-device timetable first and reconciles with live data right after. <a href="docs/media/brunel-vs-padersprinter.mp4">Full video</a></sub>
+<sub>Dasselbe Handy, dieselbe Strecke (Münster Hbf nach Paderborn Kasseler Tor, Montag 10:00), je ein Durchlauf, gestartet mit demselben Tipp. Brunel zeigt zuerst den Fahrplan auf dem Gerät und gleicht gleich danach live ab. <a href="docs/media/brunel-vs-padersprinter.mp4">Ganzes Video</a></sub>
 
 </div>
 
-### Side by side
-
 <table>
 <tr>
-<td align="center"><img src="docs/media/compare-results.png" width="420" alt="Connection list: PaderSprinter mobil and Brunel"><br><sub>Verbindungen: Münster Hbf to Paderborn Kasseler Tor, Monday 10:00</sub></td>
-<td align="center"><img src="docs/media/compare-detail.png" width="420" alt="Trip details: PaderSprinter mobil and Brunel"><br><sub>The same trip in detail (RE7, ICE, bus 480)</sub></td>
-</tr>
-<tr>
-<td align="center" colspan="2"><img src="docs/media/compare-board.png" width="420" alt="Stop board of Paderborn Hbf: PaderSprinter mobil and Brunel"><br><sub>Abfahrten: stop board of Paderborn Hbf</sub></td>
+<td align="center"><img src="docs/media/compare-results.png" width="300" alt="Verbindungsliste: PaderSprinter mobil und Brunel"><br><sub>Verbindungen: Münster Hbf nach Paderborn Kasseler Tor, Montag 10:00</sub></td>
+<td align="center"><img src="docs/media/compare-detail.png" width="300" alt="Fahrtdetails: PaderSprinter mobil und Brunel"><br><sub>Dieselbe Fahrt im Detail (RE7, ICE, Bus 480)</sub></td>
+<td align="center"><img src="docs/media/compare-board.png" width="300" alt="Abfahrtstafel Paderborn Hbf: PaderSprinter mobil und Brunel"><br><sub>Abfahrten: Haltestelle Paderborn Hbf</sub></td>
 </tr>
 </table>
 
 ---
 
-The app is called Brunel. It talks to the ivanto SRS backend of PaderSprinter, the same one the original app uses, and the UI is German.
+Die App heißt Brunel und ist ein Ersatz für die PaderSprinter-App. Die Oberfläche ist deutsch. Anders als die Original-App fragt Brunel für Verbindungen nicht mehr nur den ivanto-Server, sondern ein eigenes Backend in Rust (`backend/`), das mehrere Datenquellen zusammenführt, und rechnet zusätzlich auf dem Gerät.
 
-## Features
+## Funktionen
 
-- **Abfahrten.** Live departures at the stops around you.
-- **Verbindungen.** Trip search from stop or address to stop or address, ranked by realtime. A delayed train counts at the time it really leaves.
-- **Meine Fahrt.** Saved trips with a live view, broken-transfer warnings, and a button to swap any ride that has not started for another connection.
-- **Fahrtbegleitung.** Spoken announcements through headphones while you ride.
-- **Karte.** Stops on an OpenStreetMap map with the departures of each platform.
-- **Störungen.** Disruptions grouped by notice, and the network maps as PDFs.
+- **Abfahrten.** Live-Abfahrten an den Haltestellen in deiner Nähe, Verspätungen kommen per Push.
+- **Verbindungen.** Suche von Haltestelle oder Adresse zu Haltestelle oder Adresse, sortiert nach Echtzeit. Ein verspäteter Zug zählt zu der Zeit, zu der er wirklich fährt. Die erste Liste kommt sofort aus dem Fahrplan auf dem Gerät, danach folgen die Live-Daten.
+- **Fahrtdetails.** Karte mit dem echten Streckenverlauf jeder Fahrt, Gleise, Zwischenhalte. ICE-Fahrten heißen „ICE 51“ statt nur „51“.
+- **Meine Fahrt.** Gespeicherte Fahrten mit Live-Ansicht, Warnung bei geplatzten Anschlüssen und einer Taste, mit der du jede noch nicht begonnene Fahrt gegen eine andere Verbindung tauschst.
+- **Fahrtbegleitung.** Gesprochene Ansagen über Kopfhörer während der Fahrt.
+- **Karte.** Haltestellen auf einer OpenStreetMap-Karte mit den Abfahrten jedes Steigs.
+- **Störungen.** Störungen nach Meldung gruppiert, dazu die Liniennetzpläne als PDF.
 
-## Project layout
+## Wie es zusammenhängt
 
-This repository contains only the Brunel Android app.
+```mermaid
+flowchart LR
+    App["Brunel-App<br/>(Kotlin, Compose)"]
+    Lokal["Fahrplan auf dem Gerät<br/>(GTFS, nv_free + rv_free)"]
+    Backend["Brunel-Backend<br/>(Rust, axum)"]
+    Transitous["Transitous<br/>(MOTIS, bundesweit)"]
+    VRR["VRR EFA<br/>(Live-Tafeln in NRW)"]
+    SRS["ivanto SRS<br/>(Server des Originals)"]
 
-- `app/` contains the app and its tests.
-- `assets/` contains the app icon.
-- `docs/` contains the connection-search plan.
-- `tools/` contains the app's API checks and UI test helpers.
+    App --> Lokal
+    App -->|"Verbindungen, Push"| Backend
+    App -->|"Haltestellen, Abfahrten,<br/>Karte, Störungen"| SRS
+    Backend --> Transitous
+    Backend --> VRR
+```
 
-## Build
+**Brunel-Backend** (`backend/`, ein Rust-Dienst mit axum). Es ist eine kleine, zwischengespeicherte Schicht vor deutschen Fahrplandaten:
+
+- **Fahrplan und Suche** kommen von [Transitous](https://transitous.org) (eine offene MOTIS-Instanz mit bundesweiten Daten): Routing, Haltestellensuche, Abfahrten und der Streckenverlauf jeder Fahrt. Das Backend dünnt den Verlauf auf etwa 25 m aus (bei sechs Verbindungen 2,5 KB statt 45 KB).
+- **Live-Daten** kommen aus den Abfahrts- und Ankunftstafeln an den Haltestellen jeder Teilstrecke: [VRR/DELFI-EFA](https://efa.vrr.de) in NRW, Transitous außerhalb. Die Zeiten im Fahrplan-Frame bleiben reiner Fahrplan, die Verspätungen kommen in einem zweiten Frame hinterher.
+- **Push.** `/v1/watch` schickt Verspätungsänderungen per Server-Sent Events. Pro Haltestelle fragt ein gemeinsamer Poller alle 20 Sekunden ab, egal wie viele Handys sie beobachten. Die Handys fragen nie selbst nach.
+- **Robust gegen die Quellen.** Transitous antwortet oft in 0,2 s und hängt manchmal 15 bis 30 s. Hängt die erste Anfrage länger als eine Sekunde, geht eine zweite hinterher, und die schnellere gewinnt. Antworten werden zwischengespeichert, mit ETag und Kompression ausgeliefert.
+- **Eigene Planung.** Pro Haupt-Zug werden bis zu vier Wege dorthin angeboten (Zubringer, nach Abfahrtszeit gestaffelt), für Abfahrten weitere Anschlussbusse, und „eine Haltestelle Bus, dann warten“ wird zu einem Fußweg.
+
+**Fahrplan auf dem Gerät.** In `app/src/main/assets/timetables` liegen die Fahrpläne der Region je Tag (aus den [gtfs.de](https://gtfs.de)-Feeds `nv_free` und `rv_free`, DELFI e.V., CC BY 4.0). Der lokale Planer (`LocalPlanner.kt`) rechnet damit die erste Liste, ohne Netz. Für Tage außerhalb der mitgelieferten Fahrpläne baut die App sie notfalls selbst aus den Abfahrtstafeln nach, aber nur im WLAN und während sie lädt.
+
+**ivanto SRS** (der Server der Original-App). Haltestellensuche, Haltestellen in der Nähe, Karte, Abfahrtstafeln, Störungen, Liniennetzpläne und die Bluetooth-Daten für die Fahrtbegleitung kommen weiter von dort, mit den Kennungen der Original-App (`SrsApi.kt`). Ticketkauf, Login und Push der Original-App werden nicht benutzt.
+
+## Die Suche im Detail
+
+- **Verbindungssuche** (`TripSearch.kt`) fragt das eigene Backend einmal, vom echten Start zum echten Ziel, mit der kleinsten Umsteigezeit und der Höchstzahl an Umstiegen aus den Einstellungen. Fällt das Backend aus, fällt die App auf Paare nahegelegener Haltestellen zurück.
+- **Rangfolge.** Ein Zug bleibt nur, wenn sein bester Weg nicht von einem anderen geschlagen wird (fährt später und kommt nicht später an, kommt deutlich früher an für ein paar Minuten früheres Losfahren, oder hat weniger Umstiege ohne Nachteil). Die Liste zeigt, wenn es so viele gibt, mindestens acht Verbindungen, entweder bis zu vier Wege pro Zug („Mehr Varianten“) oder mehr Züge mit dem jeweils besten Weg („Mehr Züge“).
+- **Zwischenspeicher.** Antworten werden auf dem Gerät zwischengespeichert (im Speicher 15 Minuten, auf der Platte bis zu einem Tag), damit eine wiederholte Suche sofort da ist. Strecken, die du um diese Zeit oft suchst, lädt die App vorab.
+- **Gespeicherte Fahrten** (`LiveTrip.kt`) aktualisieren die Echtzeitdaten pro Teilstrecke und melden Anschlüsse, die nicht mehr klappen.
+- **Einstellungen** unter Profil, Einstellungen: Suchstil, kleinste Umsteigezeit, Höchstzahl der Umstiege.
+
+## Projektaufbau
+
+- `app/` die Android-App und ihre Tests.
+- `backend/` das Rust-Backend und seine Tests.
+- `assets/` das App-Icon.
+- `docs/` Pläne, der Routing-Benchmark und die Bilder und Videos dieser README.
+- `tools/` API-Prüfungen, UI-Testhelfer und der Benchmark.
+
+## Bauen
+
+App:
 
 ```sh
 export JAVA_HOME=~/.local/share/mise/installs/java/temurin-21
-./gradlew :app:installDebug        # needs SDK platform android-37.0
+./gradlew :app:installDebug        # braucht SDK-Plattform android-37.0
 ./gradlew :app:testDebugUnitTest
 ```
 
-## How it works
+Die Release-Version spricht standardmäßig mit `https://brunel.janosch-bl.de`, die Debug-Version mit `http://127.0.0.1:8099`. Mit `-Pbrunel.backend=<URL>` nimmst du ein anderes Backend.
 
-Requests go to `https://service.ivanto.de/srs/api/v1/` with the tenant and app identifiers of the original app (`SrsApi.kt`). Ticketing, login, and push are not used.
+Backend:
 
-- **Trip search** (`TripSearch.kt`) asks the own backend once, from the real start to the real destination, with the minimum change time and the most changes from the settings. The backend (`backend/`) plans with Transitous, adds up to four ways to reach each main train (feeders, staggered by when to leave) and, for departures, other onward buses, and replaces "one stop by bus, then wait" with a walk. When the backend fails, the app falls back to pairs of nearby stops.
-- **Ranking** keeps a train only when its best way is not beaten by another (leaves later and arrives no later, arrives clearly earlier for leaving a few minutes earlier, or changes less for nothing). The list shows either up to four ways per train ("Mehr Varianten") or more trains with the best way each ("Mehr Züge").
-- **Saved trips** (`LiveTrip.kt`) refresh realtime data per leg and flag transfers that no longer work.
-- **Settings** under Profil, Einstellungen set the search style, the minimum transfer time, and the maximum number of changes.
+```sh
+cd backend
+cargo test
+BIND=127.0.0.1:8099 cargo run --release
+```
 
-## Routing benchmark
+Für einen Server mit älterer glibc als dein Rechner baust du statisch: `cargo build --release --target x86_64-unknown-linux-musl`.
 
-`tools/bench/run.sh` runs 208 searches (Paderborn, the region around it, Cologne; weekday, Saturday, Sunday; morning to night; departure and arrival; 3, 5, and 8 minutes to change) through a local backend and the app's ranking. Router answers are recorded on disk and replayed, so reruns cost Transitous nothing; new ones go out one a second. `tools/bench/reference.py` fetches the router's own answer per search, and `tools/bench/report.py` writes `docs/bench-routing.html`.
+## Routing-Benchmark
 
-## License
+`tools/bench/run.sh` führt 208 Suchen (Paderborn, die Region darum, Köln; Werktag, Samstag, Sonntag; morgens bis nachts; Abfahrt und Ankunft; 3, 5 und 8 Minuten Umsteigezeit) durch ein lokales Backend und die Rangfolge der App. Die Router-Antworten werden auf der Platte aufgezeichnet und wieder abgespielt, ein erneuter Lauf kostet Transitous also nichts, neue Anfragen gehen im Sekundentakt raus. `tools/bench/reference.py` holt pro Suche die eigene Antwort des Routers, `tools/bench/report.py` schreibt `docs/bench-routing.html`.
 
-[The Unlicense](LICENSE). Public domain, everyone may do anything with it.
+## Datenquellen und Lizenzen
 
-## Disclaimer
+- Fahrplan und Routing: [Transitous](https://transitous.org) und die dort eingebundenen Feeds, Haltestellen-IDs nach DELFI.
+- Fahrplan auf dem Gerät: [gtfs.de](https://gtfs.de), `nv_free` und `rv_free`, DELFI e.V., CC BY 4.0.
+- Live-Daten: VRR/DELFI-EFA und Transitous.
+- Karte: © OpenStreetMap-Mitwirkende.
+- Haltestellen, Abfahrten, Störungen, Liniennetzpläne: ivanto SRS, wie in der Original-App.
 
-PaderBrunel is an unofficial project. It is not affiliated with PaderSprinter, Nahverkehrsverbund Paderborn/Höxter, or ivanto.
+## Lizenz
+
+[The Unlicense](LICENSE). Gemeinfrei, jeder darf damit machen, was er will.
+
+## Hinweis
+
+PaderBrunel ist ein inoffizielles Projekt. Es steht in keiner Verbindung zu PaderSprinter, dem Nahverkehrsverbund Paderborn/Höxter, ivanto, Transitous oder dem VRR.
